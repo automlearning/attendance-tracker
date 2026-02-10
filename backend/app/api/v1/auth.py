@@ -94,8 +94,8 @@ async def login(
             detail="User account is inactive",
         )
 
-    access_token = create_access_token(data={"sub": user.id})
-    refresh_token = create_refresh_token(data={"sub": user.id})
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
 
     return Token(access_token=access_token, refresh_token=refresh_token)
 
@@ -123,8 +123,8 @@ async def refresh_token(
             detail="User not found or inactive",
         )
 
-    access_token = create_access_token(data={"sub": user.id})
-    refresh_token = create_refresh_token(data={"sub": user.id})
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
 
     return Token(access_token=access_token, refresh_token=refresh_token)
 
