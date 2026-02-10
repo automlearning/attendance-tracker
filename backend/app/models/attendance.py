@@ -10,7 +10,8 @@ if TYPE_CHECKING:
 class AttendanceStatus(str, Enum):
     IN_OFFICE = "in_office"
     WFH = "wfh"
-    LEAVE = "leave"
+    ANNUAL_LEAVE = "annual_leave"
+    SICK_LEAVE = "sick_leave"
     HOLIDAY = "holiday"
 
 
@@ -63,5 +64,7 @@ class AttendanceSummary(SQLModel):
     total_workdays: int
     in_office_days: int
     wfh_days: int
-    leave_days: int
-    office_percentage: float
+    annual_leave_days: int
+    sick_leave_days: int
+    attendance_percentage: float  # (workdays - annual leave - sick days) / workdays
+    office_percentage: float  # in_office / (in_office + wfh)

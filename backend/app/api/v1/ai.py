@@ -38,6 +38,27 @@ class SuggestionsResponse(BaseModel):
     suggestions: List[Suggestion]
 
 
+class GreetingResponse(BaseModel):
+    greeting: str
+    features: List[str]
+    quick_tip: str
+
+
+@router.get("/greeting", response_model=GreetingResponse)
+async def get_greeting(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get AI greeting with personalized onboarding message."""
+    ai_service = AIService()
+    greeting_data = await ai_service.generate_greeting(
+        user_name=current_user.full_name,
+        user_id=current_user.id,
+        db=db,
+    )
+    return GreetingResponse(**greeting_data)
+
+
 @router.post("/parse-natural-language", response_model=NaturalLanguageResponse)
 async def parse_natural_language(
     request: NaturalLanguageRequest,

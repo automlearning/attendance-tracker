@@ -8,7 +8,8 @@ import type {
   AuthTokens,
   AttendanceStatus,
   ParsedAttendanceEntry,
-  Suggestion
+  Suggestion,
+  AIGreeting
 } from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -162,6 +163,11 @@ export const targetsApi = {
 
 // AI API
 export const aiApi = {
+  getGreeting: async (): Promise<AIGreeting> => {
+    const response = await api.get('/ai/greeting')
+    return response.data
+  },
+
   parseNaturalLanguage: async (text: string): Promise<{
     success: boolean
     entries: ParsedAttendanceEntry[]

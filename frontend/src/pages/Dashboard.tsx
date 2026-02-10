@@ -4,7 +4,7 @@ import { attendanceApi, targetsApi, aiApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import type { AttendanceSummary, TargetProgress, AttendanceStatus, Suggestion, ParsedAttendanceEntry } from '@/types'
+import type { AttendanceSummary, TargetProgress, AttendanceStatus, Suggestion, ParsedAttendanceEntry, AIGreeting } from '@/types'
 import {
   Building2,
   Home,
@@ -14,7 +14,9 @@ import {
   AlertCircle,
   Lightbulb,
   Send,
-  CheckCircle2
+  CheckCircle2,
+  Thermometer,
+  Sparkles
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 
@@ -23,6 +25,7 @@ export function DashboardPage() {
   const [summary, setSummary] = useState<AttendanceSummary | null>(null)
   const [progress, setProgress] = useState<TargetProgress | null>(null)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [greeting, setGreeting] = useState<AIGreeting | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [quickLogLoading, setQuickLogLoading] = useState<AttendanceStatus | null>(null)
   const [todayLogged, setTodayLogged] = useState<AttendanceStatus | null>(null)
@@ -35,7 +38,17 @@ export function DashboardPage() {
 
   useEffect(() => {
     loadDashboardData()
+    loadGreeting()
   }, [])
+
+  const loadGreeting = async () => {
+    try {
+      const greetingData = await aiApi.getGreeting()
+      setGreeting(greetingData)
+    } catch (error) {
+      console.error('Failed to load greeting:', error)
+    }
+  }
 
   const loadDashboardData = async () => {
     setIsLoading(true)
@@ -130,7 +143,8 @@ export function DashboardPage() {
     switch (status) {
       case 'in_office': return <Building2 className="h-4 w-4" />
       case 'wfh': return <Home className="h-4 w-4" />
-      case 'leave': return <CalendarOff className="h-4 w-4" />
+      case 'annual_leave': return <CalendarOff className="h-4 w-4" />
+      case 'sick_leave': return <Thermometer className="h-4 w-4" />
       default: return null
     }
   }
@@ -139,7 +153,8 @@ export function DashboardPage() {
     switch (status) {
       case 'in_office': return 'In Office'
       case 'wfh': return 'WFH'
-      case 'leave': return 'Leave'
+      case 'annual_leave': return 'Annual Leave'
+      case 'sick_leave': return 'Sick Leave'
       default: return status
     }
   }
@@ -154,6 +169,35 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* AI Greeting Section */}
+      {greeting && (
+        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-blue-100 rounded-full">
+                <Sparkles className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="flex-1 space-y-3">
+                <p className="text-lg font-medium text-blue-900">{greeting.greeting}</p>
+                {greeting.features.length > 0 && (
+                  <ul className="space-y-1 text-sm text-blue-800">
+                    {greeting.features.map((feature, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <CheckCircle2 className="h-4 w-4 mt-0.5 text-blue-600 flex-shrink-0" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-sm text-blue-700 font-medium mt-2">
+                  {greeting.quick_tip}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Welcome Section */}
       <div>
         <h1 className="text-3xl font-bold">Welcome back, {user?.full_name?.split(' ')[0]}!</h1>
@@ -195,13 +239,23 @@ export function DashboardPage() {
             </Button>
             <Button
               size="lg"
-              variant={todayLogged === 'leave' ? 'default' : 'outline'}
-              onClick={() => handleQuickLog('leave')}
+              variant={todayLogged === 'annual_leave' ? 'default' : 'outline'}
+              onClick={() => handleQuickLog('annual_leave')}
               disabled={quickLogLoading !== null}
               className="flex-1 min-w-[120px]"
             >
               <CalendarOff className="h-5 w-5 mr-2" />
-              {quickLogLoading === 'leave' ? 'Logging...' : 'Leave'}
+              {quickLogLoading === 'annual_leave' ? 'Logging...' : 'Annual Leave'}
+            </Button>
+            <Button
+              size="lg"
+              variant={todayLogged === 'sick_leave' ? 'default' : 'outline'}
+              onClick={() => handleQuickLog('sick_leave')}
+              disabled={quickLogLoading !== null}
+              className="flex-1 min-w-[120px]"
+            >
+              <Thermometer className="h-5 w-5 mr-2" />
+              {quickLogLoading === 'sick_leave' ? 'Logging...' : 'Sick Leave'}
             </Button>
           </div>
         </CardContent>
@@ -258,6 +312,42 @@ export function DashboardPage() {
       </Card>
 
       {/* Stats Grid */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Attendance</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary?.attendance_percentage || 0}%</div>
+            <p className="text-xs text-muted-foreground">(Work Days - Leave) / Total Days</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Office %</CardTitle>
+            <Building2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary?.office_percentage || 0}%</div>
+            <p className="text-xs text-muted-foreground">In Office / (In Office + WFH)</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Work Days</CardTitle>
+            <Target className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary?.total_workdays || 0}</div>
+            <p className="text-xs text-muted-foreground">total this month</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Detailed Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -283,23 +373,23 @@ export function DashboardPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Leave</CardTitle>
+            <CardTitle className="text-sm font-medium">Annual Leave</CardTitle>
             <CalendarOff className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary?.leave_days || 0}</div>
+            <div className="text-2xl font-bold">{summary?.annual_leave_days || 0}</div>
             <p className="text-xs text-muted-foreground">days this month</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Office %</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Sick Leave</CardTitle>
+            <Thermometer className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary?.office_percentage || 0}%</div>
-            <p className="text-xs text-muted-foreground">of work days</p>
+            <div className="text-2xl font-bold">{summary?.sick_leave_days || 0}</div>
+            <p className="text-xs text-muted-foreground">days this month</p>
           </CardContent>
         </Card>
       </div>

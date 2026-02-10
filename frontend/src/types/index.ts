@@ -9,7 +9,7 @@ export interface User {
   created_at: string
 }
 
-export type AttendanceStatus = 'in_office' | 'wfh' | 'leave' | 'holiday'
+export type AttendanceStatus = 'in_office' | 'wfh' | 'annual_leave' | 'sick_leave' | 'holiday'
 
 export interface AttendanceLog {
   id: number
@@ -27,8 +27,16 @@ export interface AttendanceSummary {
   total_workdays: number
   in_office_days: number
   wfh_days: number
-  leave_days: number
+  annual_leave_days: number
+  sick_leave_days: number
+  attendance_percentage: number
   office_percentage: number
+}
+
+export interface AIGreeting {
+  greeting: string
+  features: string[]
+  quick_tip: string
 }
 
 export type PeriodType = 'weekly' | 'monthly' | 'quarterly' | 'yearly'

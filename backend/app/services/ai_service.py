@@ -36,17 +36,19 @@ Current date: {current_date} ({current_day})
 User input: "{user_input}"
 
 Rules:
-1. Valid statuses: "in_office", "wfh", "leave"
+1. Valid statuses: "in_office", "wfh", "annual_leave", "sick_leave"
 2. Interpret relative dates (yesterday, last Monday, etc.) based on current date
 3. Handle date ranges (Jan 15-17, Monday to Wednesday)
 4. Default to "in_office" if status is ambiguous but location mentioned
 5. Only include workdays (Monday-Friday) unless explicitly stated
+6. For leave/vacation/holiday/PTO/time off -> use "annual_leave"
+7. For sick/ill/unwell/doctor -> use "sick_leave"
 
 Respond with ONLY a valid JSON array of objects with "date" (YYYY-MM-DD format) and "status" fields.
 If the input is unclear or invalid, respond with an empty array [].
 
 Example response:
-[{{"date": "2026-02-09", "status": "in_office"}}, {{"date": "2026-02-10", "status": "wfh"}}]"""
+[{{"date": "2026-02-09", "status": "in_office"}}, {{"date": "2026-02-10", "status": "sick_leave"}}]"""
 
 
 class AIService:
@@ -114,8 +116,10 @@ class AIService:
         status = AttendanceStatus.IN_OFFICE
         if "wfh" in text or "work from home" in text or "remote" in text:
             status = AttendanceStatus.WFH
-        elif "leave" in text or "off" in text or "vacation" in text:
-            status = AttendanceStatus.LEAVE
+        elif "sick" in text or "ill" in text or "unwell" in text or "doctor" in text:
+            status = AttendanceStatus.SICK_LEAVE
+        elif "leave" in text or "off" in text or "vacation" in text or "pto" in text or "holiday" in text:
+            status = AttendanceStatus.ANNUAL_LEAVE
 
         # Detect date
         target_date = current_date
@@ -149,6 +153,49 @@ class AIService:
             })
 
         return entries
+
+    async def generate_greeting(
+        self,
+        user_name: str,
+        user_id: int,
+        db: AsyncSession,
+    ) -> dict:
+        """Generate a personalized greeting with onboarding info."""
+        first_name = user_name.split()[0] if user_name else "there"
+
+        # Check if user has any attendance logs (new user detection)
+        result = await db.execute(
+            select(AttendanceLog).where(AttendanceLog.user_id == user_id).limit(1)
+        )
+        has_logs = result.scalar_one_or_none() is not None
+
+        if not has_logs:
+            # New user - provide onboarding
+            greeting = f"Welcome, {first_name}! I'm your AI attendance assistant. Let me show you what I can help with."
+            features = [
+                "Quick Log: One-click buttons to log In-Office, WFH, Annual Leave, or Sick Leave",
+                "Natural Language: Just tell me 'I was in office Monday and Tuesday' and I'll log it",
+                "Smart Tracking: I calculate your attendance as (Work Days - Leave Days) / Total Work Days",
+                "Target Setting: Set office attendance goals and I'll track your progress",
+                "Suggestions: I'll remind you to log attendance and spot patterns in your schedule",
+            ]
+            quick_tip = "Start by logging today's attendance using the quick buttons above!"
+        else:
+            # Returning user - provide contextual help
+            greeting = f"Hello, {first_name}! Ready to track your attendance today?"
+            features = [
+                "Use quick buttons for one-click logging",
+                "Type naturally to log multiple days at once",
+                "Check your attendance stats in the summary cards",
+                "Set targets to track your office attendance goals",
+            ]
+            quick_tip = "Tip: You can say things like 'I was WFH yesterday and sick on Monday'"
+
+        return {
+            "greeting": greeting,
+            "features": features,
+            "quick_tip": quick_tip,
+        }
 
     async def generate_suggestions(
         self,

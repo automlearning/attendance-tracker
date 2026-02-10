@@ -154,7 +154,11 @@ async def get_attendance_summary(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get attendance summary for a period."""
+    """Get attendance summary for a period.
+
+    Attendance % = (Working Days - Annual Leave - Sick Days) / Total Working Days
+    Office % = In Office Days / (In Office + WFH Days)
+    """
     result = await db.execute(
         select(AttendanceLog).where(
             and_(
@@ -168,12 +172,18 @@ async def get_attendance_summary(
 
     in_office_days = sum(1 for log in logs if log.status == AttendanceStatus.IN_OFFICE)
     wfh_days = sum(1 for log in logs if log.status == AttendanceStatus.WFH)
-    leave_days = sum(1 for log in logs if log.status == AttendanceStatus.LEAVE)
+    annual_leave_days = sum(1 for log in logs if log.status == AttendanceStatus.ANNUAL_LEAVE)
+    sick_leave_days = sum(1 for log in logs if log.status == AttendanceStatus.SICK_LEAVE)
 
     total_workdays = count_workdays(start_date, end_date)
-    logged_workdays = in_office_days + wfh_days  # Leave doesn't count toward work
 
-    office_percentage = (in_office_days / logged_workdays * 100) if logged_workdays > 0 else 0
+    # Attendance % = (Working Days - Annual Leave - Sick Days) / Total Working Days
+    days_worked = total_workdays - annual_leave_days - sick_leave_days
+    attendance_percentage = (days_worked / total_workdays * 100) if total_workdays > 0 else 0
+
+    # Office % = In Office / (In Office + WFH)
+    present_days = in_office_days + wfh_days
+    office_percentage = (in_office_days / present_days * 100) if present_days > 0 else 0
 
     return AttendanceSummary(
         period_start=start_date,
@@ -181,7 +191,9 @@ async def get_attendance_summary(
         total_workdays=total_workdays,
         in_office_days=in_office_days,
         wfh_days=wfh_days,
-        leave_days=leave_days,
+        annual_leave_days=annual_leave_days,
+        sick_leave_days=sick_leave_days,
+        attendance_percentage=round(attendance_percentage, 1),
         office_percentage=round(office_percentage, 1),
     )
 
