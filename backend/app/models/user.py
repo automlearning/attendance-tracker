@@ -19,6 +19,7 @@ class UserBase(SQLModel):
     full_name: str
     role: UserRole = Field(default=UserRole.USER)
     is_active: bool = Field(default=True)
+    target_percentage: float = Field(default=50.0, ge=0, le=100)  # Office attendance target
 
 
 class User(UserBase, table=True):
@@ -53,3 +54,4 @@ class UserUpdate(SQLModel):
     password: Optional[str] = None
     is_active: Optional[bool] = None
     role: Optional[UserRole] = None
+    target_percentage: Optional[float] = None

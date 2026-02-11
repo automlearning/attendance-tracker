@@ -6,10 +6,11 @@ export interface User {
   full_name: string
   role: UserRole
   is_active: boolean
+  target_percentage: number
   created_at: string
 }
 
-export type AttendanceStatus = 'in_office' | 'wfh' | 'annual_leave' | 'sick_leave' | 'holiday'
+export type AttendanceStatus = 'in_office' | 'wfh' | 'wfh_exempt' | 'annual_leave' | 'sick_leave' | 'public_holiday' | 'planned_office' | 'planned_wfh'
 
 export interface AttendanceLog {
   id: number
@@ -24,19 +25,30 @@ export interface AttendanceLog {
 export interface AttendanceSummary {
   period_start: string
   period_end: string
-  total_workdays: number
-  in_office_days: number
-  wfh_days: number
-  annual_leave_days: number
-  sick_leave_days: number
-  attendance_percentage: number
-  office_percentage: number
+  business_days: number  // Weekdays minus public holidays
+  leave_days: number  // Annual leave + sick leave
+  exempt_days: number  // Discretionary WFH exemptions
+  work_days: number  // Business days - leave - exemptions
+  office_days: number  // Days actually in office
+  wfh_days: number  // Regular WFH days
+  planned_office_days: number  // Future planned office days
+  planned_wfh_days: number  // Future planned WFH days
+  office_percentage: number  // office_days / business_days (actual %)
+  total_percentage: number  // (office_days + planned_office_days) / business_days
+  target_percentage: number  // 50%
 }
 
 export interface AIGreeting {
   greeting: string
   features: string[]
   quick_tip: string
+}
+
+export interface PublicHoliday {
+  id: number
+  date: string
+  name: string
+  region: string
 }
 
 export type PeriodType = 'weekly' | 'monthly' | 'quarterly' | 'yearly'
@@ -72,6 +84,28 @@ export interface Suggestion {
   type: 'reminder' | 'recommendation' | 'warning'
   message: string
   priority: number
+}
+
+export interface AICoaching {
+  status: 'on_track' | 'at_risk' | 'behind' | 'no_data'
+  headline: string
+  message: string
+  action_items: string[]
+  stats: {
+    office_days: number
+    wfh_days: number
+    leave_days: number
+    exempt_days: number
+    business_days: number
+    work_days: number
+    remaining_days: number
+    current_percentage: number
+    target_percentage: number
+    target_office_days: number
+    days_needed: number
+    days_ahead: number
+    can_meet_target: boolean
+  }
 }
 
 export interface AuthTokens {

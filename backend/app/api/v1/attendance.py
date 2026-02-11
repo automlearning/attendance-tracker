@@ -13,13 +13,14 @@ from app.models.attendance import (
     AttendanceLogUpdate,
     AttendanceStatus,
     AttendanceSummary,
+    PublicHoliday,
 )
 
 router = APIRouter()
 
 
-def count_workdays(start_date: date, end_date: date) -> int:
-    """Count workdays (Mon-Fri) between two dates inclusive."""
+def count_weekdays(start_date: date, end_date: date) -> int:
+    """Count weekdays (Mon-Fri) between two dates inclusive."""
     count = 0
     current = start_date
     while current <= end_date:
@@ -27,6 +28,32 @@ def count_workdays(start_date: date, end_date: date) -> int:
             count += 1
         current += timedelta(days=1)
     return count
+
+
+async def count_business_days(
+    start_date: date, end_date: date, db: AsyncSession
+) -> tuple[int, int]:
+    """Count business days (weekdays minus public holidays).
+
+    Returns: (business_days, public_holiday_count)
+    """
+    weekdays = count_weekdays(start_date, end_date)
+
+    # Get public holidays in the period
+    result = await db.execute(
+        select(PublicHoliday).where(
+            and_(
+                PublicHoliday.date >= start_date,
+                PublicHoliday.date <= end_date,
+            )
+        )
+    )
+    holidays = result.scalars().all()
+
+    # Only count holidays that fall on weekdays
+    holiday_count = sum(1 for h in holidays if h.date.weekday() < 5)
+
+    return weekdays - holiday_count, holiday_count
 
 
 @router.get("", response_model=List[AttendanceLogRead])
@@ -156,9 +183,13 @@ async def get_attendance_summary(
 ):
     """Get attendance summary for a period.
 
-    Attendance % = (Working Days - Annual Leave - Sick Days) / Total Working Days
-    Office % = In Office Days / (In Office + WFH Days)
+    Formula:
+    - Business Days = Weekdays (Mon-Fri) - Public Holidays
+    - Office % = Office Days / Business Days (target: 50%)
+    - Each month is independent - no carryover
+    - Weekends are excluded from all calculations
     """
+    # Get attendance logs
     result = await db.execute(
         select(AttendanceLog).where(
             and_(
@@ -170,31 +201,61 @@ async def get_attendance_summary(
     )
     logs = result.scalars().all()
 
-    in_office_days = sum(1 for log in logs if log.status == AttendanceStatus.IN_OFFICE)
-    wfh_days = sum(1 for log in logs if log.status == AttendanceStatus.WFH)
-    annual_leave_days = sum(1 for log in logs if log.status == AttendanceStatus.ANNUAL_LEAVE)
-    sick_leave_days = sum(1 for log in logs if log.status == AttendanceStatus.SICK_LEAVE)
+    # Count by status - office days in the future are automatically "planned"
+    today = date.today()
 
-    total_workdays = count_workdays(start_date, end_date)
+    # Actual office days = in_office on or before today
+    office_days = sum(1 for log in logs if log.status == AttendanceStatus.IN_OFFICE and log.date <= today)
 
-    # Attendance % = (Working Days - Annual Leave - Sick Days) / Total Working Days
-    days_worked = total_workdays - annual_leave_days - sick_leave_days
-    attendance_percentage = (days_worked / total_workdays * 100) if total_workdays > 0 else 0
+    # Planned office days = in_office in the future OR explicitly planned_office
+    planned_office_days = sum(1 for log in logs if
+        (log.status == AttendanceStatus.IN_OFFICE and log.date > today) or
+        log.status == AttendanceStatus.PLANNED_OFFICE
+    )
 
-    # Office % = In Office / (In Office + WFH)
-    present_days = in_office_days + wfh_days
-    office_percentage = (in_office_days / present_days * 100) if present_days > 0 else 0
+    # WFH counts
+    wfh_days = sum(1 for log in logs if log.status == AttendanceStatus.WFH and log.date <= today)
+    planned_wfh_days = sum(1 for log in logs if
+        (log.status == AttendanceStatus.WFH and log.date > today) or
+        log.status == AttendanceStatus.PLANNED_WFH
+    )
+
+    exempt_days = sum(1 for log in logs if log.status == AttendanceStatus.WFH_EXEMPT)
+    annual_leave = sum(1 for log in logs if log.status == AttendanceStatus.ANNUAL_LEAVE)
+    sick_leave = sum(1 for log in logs if log.status == AttendanceStatus.SICK_LEAVE)
+
+    # Calculate business days (weekdays - public holidays)
+    business_days, _ = await count_business_days(start_date, end_date, db)
+
+    # Leave days = annual + sick
+    leave_days = annual_leave + sick_leave
+
+    # Work days = business days minus leave/exempt
+    # These are the days you're expected to work (denominator for percentage)
+    work_days = business_days - leave_days - exempt_days
+
+    # Office % = Office Days / Work Days (excludes leave/exempt from denominator)
+    # This gives the true percentage of "eligible" days you went to office
+    office_percentage = round(office_days / work_days * 100) if work_days > 0 else 0
+
+    # Total % = (Office Days + Planned Office Days) / Work Days
+    # This shows what the percentage would be if all planned days are completed
+    total_percentage = round((office_days + planned_office_days) / work_days * 100) if work_days > 0 else 0
 
     return AttendanceSummary(
         period_start=start_date,
         period_end=end_date,
-        total_workdays=total_workdays,
-        in_office_days=in_office_days,
+        business_days=business_days,
+        leave_days=leave_days,
+        exempt_days=exempt_days,
+        work_days=work_days,
+        office_days=office_days,
         wfh_days=wfh_days,
-        annual_leave_days=annual_leave_days,
-        sick_leave_days=sick_leave_days,
-        attendance_percentage=round(attendance_percentage, 1),
-        office_percentage=round(office_percentage, 1),
+        planned_office_days=planned_office_days,
+        planned_wfh_days=planned_wfh_days,
+        office_percentage=office_percentage,
+        total_percentage=total_percentage,
+        target_percentage=50.0,  # Fixed at 50%
     )
 
 

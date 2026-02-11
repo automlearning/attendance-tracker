@@ -9,7 +9,9 @@ import type {
   AttendanceStatus,
   ParsedAttendanceEntry,
   Suggestion,
-  AIGreeting
+  AIGreeting,
+  AICoaching,
+  PublicHoliday
 } from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -82,6 +84,24 @@ export const authApi = {
 
   getMe: async (): Promise<User> => {
     const response = await api.get('/auth/me')
+    return response.data
+  },
+}
+
+// Users API
+export const usersApi = {
+  getProfile: async (): Promise<User> => {
+    const response = await api.get('/users/profile')
+    return response.data
+  },
+
+  updateProfile: async (data: { email?: string; full_name?: string; target_percentage?: number }): Promise<User> => {
+    const response = await api.put('/users/profile', data)
+    return response.data
+  },
+
+  updateTarget: async (targetPercentage: number): Promise<User> => {
+    const response = await api.put('/users/profile', { target_percentage: targetPercentage })
     return response.data
   },
 }
@@ -180,6 +200,34 @@ export const aiApi = {
   getSuggestions: async (): Promise<{ suggestions: Suggestion[] }> => {
     const response = await api.get('/ai/suggestions')
     return response.data
+  },
+
+  getCoaching: async (): Promise<AICoaching> => {
+    const response = await api.get('/ai/coaching')
+    return response.data
+  },
+
+  chat: async (message: string): Promise<{ response: string; suggestions?: string[] }> => {
+    const response = await api.post('/ai/chat', { message })
+    return response.data
+  },
+}
+
+// Holidays API
+export const holidaysApi = {
+  list: async (year?: number): Promise<PublicHoliday[]> => {
+    const params = year ? `?year=${year}` : ''
+    const response = await api.get(`/holidays${params}`)
+    return response.data
+  },
+
+  create: async (data: { date: string; name: string; region?: string }): Promise<PublicHoliday> => {
+    const response = await api.post('/holidays', data)
+    return response.data
+  },
+
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/holidays/${id}`)
   },
 }
 

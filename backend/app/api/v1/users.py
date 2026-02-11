@@ -24,9 +24,18 @@ async def update_profile(
     """Update current user's profile."""
     update_data = user_update.model_dump(exclude_unset=True)
 
-    # Users can only update their own email and full_name
-    allowed_fields = {"email", "full_name"}
+    # Users can only update their own profile fields
+    allowed_fields = {"email", "full_name", "target_percentage"}
     update_data = {k: v for k, v in update_data.items() if k in allowed_fields}
+
+    # Validate target_percentage range
+    if "target_percentage" in update_data:
+        target = update_data["target_percentage"]
+        if target < 0 or target > 100:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Target percentage must be between 0 and 100",
+            )
 
     # Check email uniqueness if updating email
     if "email" in update_data and update_data["email"] != current_user.email:

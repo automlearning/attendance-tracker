@@ -36,13 +36,14 @@ Current date: {current_date} ({current_day})
 User input: "{user_input}"
 
 Rules:
-1. Valid statuses: "in_office", "wfh", "annual_leave", "sick_leave"
+1. Valid statuses: "in_office", "wfh", "wfh_exempt", "annual_leave", "sick_leave"
 2. Interpret relative dates (yesterday, last Monday, etc.) based on current date
 3. Handle date ranges (Jan 15-17, Monday to Wednesday)
 4. Default to "in_office" if status is ambiguous but location mentioned
 5. Only include workdays (Monday-Friday) unless explicitly stated
 6. For leave/vacation/holiday/PTO/time off -> use "annual_leave"
 7. For sick/ill/unwell/doctor -> use "sick_leave"
+8. For approved/exempt/discretionary WFH -> use "wfh_exempt"
 
 Respond with ONLY a valid JSON array of objects with "date" (YYYY-MM-DD format) and "status" fields.
 If the input is unclear or invalid, respond with an empty array [].
@@ -114,7 +115,9 @@ class AIService:
 
         # Detect status
         status = AttendanceStatus.IN_OFFICE
-        if "wfh" in text or "work from home" in text or "remote" in text:
+        if "exempt" in text or "approved wfh" in text or "discretionary" in text:
+            status = AttendanceStatus.WFH_EXEMPT
+        elif "wfh" in text or "work from home" in text or "remote" in text:
             status = AttendanceStatus.WFH
         elif "sick" in text or "ill" in text or "unwell" in text or "doctor" in text:
             status = AttendanceStatus.SICK_LEAVE
@@ -171,25 +174,24 @@ class AIService:
 
         if not has_logs:
             # New user - provide onboarding
-            greeting = f"Welcome, {first_name}! I'm your AI attendance assistant. Let me show you what I can help with."
+            greeting = f"Welcome, {first_name}! I'm your AI attendance coach. I'll help you meet your 50% office attendance target."
             features = [
-                "Quick Log: One-click buttons to log In-Office, WFH, Annual Leave, or Sick Leave",
+                "Your target: 50% office attendance (about 5 days per fortnight)",
+                "How it works: Office % = Office Days ÷ Work Days (excludes leave and public holidays)",
+                "Quick Log: One-click buttons to log In-Office, WFH, Leave, or use WFH Exempt for approved exceptions",
+                "AI Coaching: I'll tell you if you're on track and what to do to meet your target",
                 "Natural Language: Just tell me 'I was in office Monday and Tuesday' and I'll log it",
-                "Smart Tracking: I calculate your attendance as (Work Days - Leave Days) / Total Work Days",
-                "Target Setting: Set office attendance goals and I'll track your progress",
-                "Suggestions: I'll remind you to log attendance and spot patterns in your schedule",
             ]
-            quick_tip = "Start by logging today's attendance using the quick buttons above!"
+            quick_tip = "Start by logging today's attendance - I'll track your progress toward 50%!"
         else:
             # Returning user - provide contextual help
-            greeting = f"Hello, {first_name}! Ready to track your attendance today?"
+            greeting = f"Hello, {first_name}! Let's check your progress toward 50% office attendance."
             features = [
-                "Use quick buttons for one-click logging",
-                "Type naturally to log multiple days at once",
-                "Check your attendance stats in the summary cards",
-                "Set targets to track your office attendance goals",
+                "Check the coaching card below for personalized advice",
+                "Use quick buttons or type naturally to log attendance",
+                "WFH Exempt days don't count against your target",
             ]
-            quick_tip = "Tip: You can say things like 'I was WFH yesterday and sick on Monday'"
+            quick_tip = "Tip: The coaching card shows exactly how many office days you need this month"
 
         return {
             "greeting": greeting,
@@ -261,3 +263,62 @@ class AIService:
                     })
 
         return suggestions
+
+    async def chat(
+        self,
+        message: str,
+        context: dict,
+    ) -> str:
+        """Chat with the AI about attendance, targets, and tips."""
+
+        system_prompt = f"""You are a friendly AI attendance coach helping users meet their office attendance target.
+
+Current user context:
+- Name: {context.get('user_name', 'User')}
+- Target: {context.get('target_percentage', 50)}% office attendance
+- Current percentage: {context.get('current_percentage', 0)}%
+- Office days this month: {context.get('office_days', 0)}
+- WFH days: {context.get('wfh_days', 0)}
+- Leave days: {context.get('leave_days', 0)}
+- Exempt days: {context.get('exempt_days', 0)}
+- Total business days this month: {context.get('business_days', 0)}
+- Remaining business days: {context.get('remaining_days', 0)}
+- Target office days: {context.get('target_office_days', 0)}
+- Days still needed to hit target: {context.get('days_needed', 0)}
+
+Guidelines:
+1. Be friendly, supportive, and encouraging
+2. Give specific, actionable advice based on their actual numbers
+3. Keep responses concise (2-4 sentences usually)
+4. If they're on track, celebrate! If behind, be supportive not judgmental
+5. Explain the attendance calculation if asked: Office % = Office Days / Total Business Days
+6. WFH Exempt days reduce the denominator (business days) so they don't count against the target
+7. Each month starts fresh - no carryover from previous months
+
+Help the user understand their progress and give practical tips for meeting their target."""
+
+        if not self.client:
+            # Fallback response without AI
+            pct = context.get('current_percentage', 0)
+            target = context.get('target_percentage', 50)
+            needed = context.get('days_needed', 0)
+            remaining = context.get('remaining_days', 0)
+
+            if pct >= target:
+                return f"You're doing great! At {pct}%, you've already hit your {target}% target. Keep it up!"
+            elif needed <= remaining:
+                return f"You're at {pct}% and need {needed} more office day(s) to reach {target}%. You have {remaining} business days left - totally achievable!"
+            else:
+                return f"You're at {pct}% with {remaining} days left. Even going to office every remaining day, you'd reach {((context.get('office_days', 0) + remaining) / context.get('business_days', 1) * 100):.1f}%. Focus on maximizing office days and plan better for next month."
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=512,
+                system=system_prompt,
+                messages=[{"role": "user", "content": message}],
+            )
+            return response.content[0].text.strip()
+        except Exception as e:
+            # Fallback on error
+            return f"I'm having trouble connecting right now. Your current stats: {context.get('current_percentage', 0)}% office attendance ({context.get('office_days', 0)} days). Target: {context.get('target_percentage', 50)}%."

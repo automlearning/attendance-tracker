@@ -9,10 +9,13 @@ if TYPE_CHECKING:
 
 class AttendanceStatus(str, Enum):
     IN_OFFICE = "in_office"
-    WFH = "wfh"
+    WFH = "wfh"  # Regular WFH - counts against 50% target
+    WFH_EXEMPT = "wfh_exempt"  # Discretionary exemption - doesn't count against target
     ANNUAL_LEAVE = "annual_leave"
     SICK_LEAVE = "sick_leave"
-    HOLIDAY = "holiday"
+    PUBLIC_HOLIDAY = "public_holiday"
+    PLANNED_OFFICE = "planned_office"  # Planning to go to office (future)
+    PLANNED_WFH = "planned_wfh"  # Planning to WFH (future)
 
 
 class AttendanceSource(str, Enum):
@@ -40,6 +43,16 @@ class AttendanceLog(AttendanceLogBase, table=True):
     user: "User" = Relationship(back_populates="attendance_logs")
 
 
+class PublicHoliday(SQLModel, table=True):
+    """Public holidays that are excluded from business days."""
+    __tablename__ = "public_holidays"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    date: dt.date = Field(index=True, unique=True)
+    name: str
+    region: str = Field(default="VIC")  # State/region code
+
+
 class AttendanceLogCreate(SQLModel):
     date: dt.date
     status: AttendanceStatus
@@ -61,10 +74,14 @@ class AttendanceLogUpdate(SQLModel):
 class AttendanceSummary(SQLModel):
     period_start: dt.date
     period_end: dt.date
-    total_workdays: int
-    in_office_days: int
-    wfh_days: int
-    annual_leave_days: int
-    sick_leave_days: int
-    attendance_percentage: float  # (workdays - annual leave - sick days) / workdays
-    office_percentage: float  # in_office / (in_office + wfh)
+    business_days: int  # Weekdays minus public holidays
+    leave_days: int  # Annual leave + sick leave
+    exempt_days: int  # Discretionary WFH exemptions
+    work_days: int  # Business days - leave - exemptions (days you need to be in office or WFH)
+    office_days: int  # Days actually in office
+    wfh_days: int  # Regular WFH days (counts against target)
+    planned_office_days: int = 0  # Future planned office days
+    planned_wfh_days: int = 0  # Future planned WFH days
+    office_percentage: float  # office_days / business_days (target: 50%)
+    total_percentage: float = 0.0  # (office_days + planned_office_days) / business_days
+    target_percentage: float = 50.0  # Minimum required office attendance (fixed at 50%)

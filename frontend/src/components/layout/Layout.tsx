@@ -1,10 +1,10 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
+import { ChatBubble } from '@/components/ChatBubble'
 import {
   LayoutDashboard,
   Calendar,
-  Target,
   Settings,
   Users,
   LogOut,
@@ -31,7 +31,6 @@ export function Layout({ children }: LayoutProps) {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/attendance', label: 'Attendance', icon: Calendar },
-    { path: '/targets', label: 'Targets', icon: Target },
     { path: '/settings', label: 'Settings', icon: Settings },
   ]
 
@@ -130,6 +129,9 @@ export function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* AI Chat Bubble */}
+      <ChatBubble />
     </div>
   )
 }
