@@ -4,24 +4,27 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm install
 
 # Copy source and build
 COPY . .
 RUN npm run build
 
-# Production stage
-FROM node:20-alpine
+# Production stage - use nginx for simplicity
+FROM nginx:alpine
 
-WORKDIR /app
+# Copy built files to nginx
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Install serve globally
-RUN npm install -g serve@14
+# Copy nginx config for SPA routing
+RUN echo 'server { \
+    listen 8080; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
 
-# Copy built files
-COPY --from=builder /app/dist ./dist
-
-# Use PORT from Railway, default to 8080
-ENV PORT=8080
 EXPOSE 8080
-CMD sh -c "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}"
+CMD ["nginx", "-g", "daemon off;"]
