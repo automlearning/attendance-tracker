@@ -8,12 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 import io
 
-from app.database import get_session
 from app.config import settings
 from app.models.user import User
 from app.models.attendance import AttendanceLog, PublicHoliday
 from app.models.target import Target
-from app.core.security import get_current_user
+from app.api.deps import get_db, get_current_user
 
 router = APIRouter()
 
@@ -37,14 +36,14 @@ def serialize_for_json(obj):
 @router.get("/export")
 async def export_user_data(
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Export all data for the current user as JSON.
     This can be used for personal backups or data portability.
     """
     # Get user's attendance logs
-    attendance_result = await session.execute(
+    attendance_result = await db.execute(
         select(AttendanceLog)
         .where(AttendanceLog.user_id == current_user.id)
         .order_by(AttendanceLog.date)
@@ -52,7 +51,7 @@ async def export_user_data(
     attendance_logs = attendance_result.scalars().all()
 
     # Get user's targets
-    targets_result = await session.execute(
+    targets_result = await db.execute(
         select(Target)
         .where(Target.user_id == current_user.id)
         .order_by(Target.start_date)
@@ -60,7 +59,7 @@ async def export_user_data(
     targets = targets_result.scalars().all()
 
     # Get public holidays (shared data)
-    holidays_result = await session.execute(
+    holidays_result = await db.execute(
         select(PublicHoliday).order_by(PublicHoliday.date)
     )
     holidays = holidays_result.scalars().all()
@@ -97,7 +96,7 @@ async def export_user_data(
 @router.get("/export/full")
 async def export_full_database(
     x_backup_secret: Optional[str] = Header(None),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Export full database as JSON (admin only via secret key).
@@ -116,23 +115,23 @@ async def export_full_database(
         raise HTTPException(status_code=403, detail="Invalid backup secret")
 
     # Get all users (without passwords)
-    users_result = await session.execute(select(User))
+    users_result = await db.execute(select(User))
     users = users_result.scalars().all()
 
     # Get all attendance logs
-    attendance_result = await session.execute(
+    attendance_result = await db.execute(
         select(AttendanceLog).order_by(AttendanceLog.date)
     )
     attendance_logs = attendance_result.scalars().all()
 
     # Get all targets
-    targets_result = await session.execute(
+    targets_result = await db.execute(
         select(Target).order_by(Target.start_date)
     )
     targets = targets_result.scalars().all()
 
     # Get public holidays
-    holidays_result = await session.execute(
+    holidays_result = await db.execute(
         select(PublicHoliday).order_by(PublicHoliday.date)
     )
     holidays = holidays_result.scalars().all()
