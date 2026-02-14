@@ -1,16 +1,25 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
 
-# Copy source
+# Copy source and build
 COPY . .
+RUN npm run build
 
-# Expose port
-EXPOSE 5173
+# Production stage
+FROM node:20-alpine
 
-# Run development server
-CMD ["npm", "run", "dev", "--", "--host"]
+WORKDIR /app
+
+# Install serve globally
+RUN npm install -g serve@14
+
+# Copy built files
+COPY --from=builder /app/dist ./dist
+
+# Railway sets PORT env var
+CMD sh -c "serve -s dist -l tcp://0.0.0.0:$PORT"
