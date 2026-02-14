@@ -21,5 +21,7 @@ RUN npm install -g serve@14
 # Copy built files
 COPY --from=builder /app/dist ./dist
 
-# Railway sets PORT env var
-CMD sh -c "serve -s dist -l tcp://0.0.0.0:$PORT"
+# Use PORT from Railway, default to 8080
+ENV PORT=8080
+EXPOSE 8080
+CMD sh -c "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}"
