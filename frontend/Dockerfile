@@ -2,13 +2,16 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Set API URL for production build
+ENV VITE_API_URL=https://attendance-tracker-production-4433.up.railway.app
+
 # Install dependencies
 COPY package.json package-lock.json* ./
 RUN npm install
 
 # Copy source and build
 COPY . .
-RUN npm run build
+RUN echo "Building with VITE_API_URL=$VITE_API_URL" && npm run build
 
 # Production stage
 FROM nginx:alpine
