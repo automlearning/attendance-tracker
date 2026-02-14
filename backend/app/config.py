@@ -22,19 +22,16 @@ class Settings(BaseSettings):
     # AI - Anthropic
     ANTHROPIC_API_KEY: str = ""
 
-    # CORS - supports comma-separated origins via CORS_ORIGINS env var
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # CORS - comma-separated origins string
+    CORS_ORIGINS_STR: str = "http://localhost:5173,http://localhost:3000"
 
     # Backup settings
     BACKUP_SECRET: str = ""  # Secret key for triggering backups via API
 
     @property
     def cors_origins_list(self) -> list[str]:
-        """Parse CORS origins from environment or use defaults."""
-        env_origins = os.getenv("CORS_ORIGINS", "")
-        if env_origins:
-            return [origin.strip() for origin in env_origins.split(",")]
-        return self.CORS_ORIGINS
+        """Parse CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",") if origin.strip()]
 
     class Config:
         env_file = ".env"
