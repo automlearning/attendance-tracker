@@ -16,15 +16,15 @@ FROM nginx:alpine
 # Copy built files to nginx
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx config for SPA routing
+# Create nginx config template with PORT placeholder
 RUN echo 'server { \
-    listen 8080; \
+    listen ${PORT}; \
     root /usr/share/nginx/html; \
     index index.html; \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \
-}' > /etc/nginx/conf.d/default.conf
+}' > /etc/nginx/templates/default.conf.template
 
-EXPOSE 8080
+# Railway sets PORT env var - nginx will substitute it
 CMD ["nginx", "-g", "daemon off;"]
