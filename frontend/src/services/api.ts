@@ -211,6 +211,25 @@ export const aiApi = {
     const response = await api.post('/ai/chat', { message })
     return response.data
   },
+
+  submitFeedback: async (data: {
+    user_message: string
+    ai_response: string
+    rating: 'thumbs_up' | 'thumbs_down'
+    comment?: string
+  }): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post('/ai/feedback', data)
+    return response.data
+  },
+
+  transcribeAudio: async (audioBlob: Blob): Promise<{ success: boolean; text?: string; error?: string }> => {
+    const formData = new FormData()
+    formData.append('audio', audioBlob, 'recording.webm')
+    const response = await api.post('/ai/transcribe', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
 }
 
 // Holidays API

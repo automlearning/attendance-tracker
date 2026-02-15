@@ -1,15 +1,20 @@
 from datetime import date, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, and_
 from pydantic import BaseModel
 import calendar
+import httpx
+import tempfile
+import os
 
 from app.api.deps import get_db, get_current_user
 from app.models.user import User
 from app.models.attendance import AttendanceStatus, AttendanceSource, AttendanceLog, PublicHoliday
+from app.models.feedback import ChatFeedback, FeedbackRating, ChatFeedbackCreate
 from app.services.ai_service import AIService
+from app.config import settings
 
 router = APIRouter()
 
@@ -419,3 +424,148 @@ def _get_suggested_days(remaining_days: int, days_needed: int) -> str:
     if days_needed <= 5:
         return "at least 3 days this week"
     return f"about {days_needed // (remaining_days // 5 + 1)} days per week"
+
+
+# ============== Feedback Endpoints ==============
+
+class FeedbackRequest(BaseModel):
+    user_message: str
+    ai_response: str
+    rating: FeedbackRating
+    comment: Optional[str] = None
+
+
+class FeedbackResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+async def submit_feedback(
+    request: FeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit feedback (thumbs up/down) on an AI chat response."""
+    feedback = ChatFeedback(
+        user_id=current_user.id,
+        user_message=request.user_message,
+        ai_response=request.ai_response,
+        rating=request.rating,
+        comment=request.comment,
+    )
+    db.add(feedback)
+    await db.commit()
+
+    return FeedbackResponse(
+        success=True,
+        message="Thank you for your feedback!"
+    )
+
+
+@router.get("/feedback/stats")
+async def get_feedback_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get feedback statistics (admin only in future)."""
+    # Get total counts
+    result = await db.execute(select(ChatFeedback))
+    all_feedback = result.scalars().all()
+
+    thumbs_up = sum(1 for f in all_feedback if f.rating == FeedbackRating.THUMBS_UP)
+    thumbs_down = sum(1 for f in all_feedback if f.rating == FeedbackRating.THUMBS_DOWN)
+
+    return {
+        "total": len(all_feedback),
+        "thumbs_up": thumbs_up,
+        "thumbs_down": thumbs_down,
+        "satisfaction_rate": round(thumbs_up / len(all_feedback) * 100, 1) if all_feedback else 0,
+    }
+
+
+# ============== Voice Transcription (Whisper) ==============
+
+class TranscriptionResponse(BaseModel):
+    success: bool
+    text: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/transcribe", response_model=TranscriptionResponse)
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Transcribe audio to text using OpenAI Whisper API."""
+    if not settings.OPENAI_API_KEY:
+        return TranscriptionResponse(
+            success=False,
+            error="Voice transcription not configured. Please add OPENAI_API_KEY."
+        )
+
+    # Validate file type
+    allowed_types = ["audio/webm", "audio/wav", "audio/mp3", "audio/mpeg", "audio/ogg", "audio/m4a"]
+    if audio.content_type and audio.content_type not in allowed_types:
+        # Be lenient with content types
+        pass
+
+    try:
+        # Read the audio file
+        audio_content = await audio.read()
+
+        # Determine file extension from content type or filename
+        ext = ".webm"
+        if audio.filename:
+            ext = os.path.splitext(audio.filename)[1] or ext
+        elif audio.content_type:
+            ext_map = {
+                "audio/webm": ".webm",
+                "audio/wav": ".wav",
+                "audio/mp3": ".mp3",
+                "audio/mpeg": ".mp3",
+                "audio/ogg": ".ogg",
+                "audio/m4a": ".m4a",
+            }
+            ext = ext_map.get(audio.content_type, ".webm")
+
+        # Call OpenAI Whisper API
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={
+                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                },
+                files={
+                    "file": (f"audio{ext}", audio_content, audio.content_type or "audio/webm"),
+                },
+                data={
+                    "model": "whisper-1",
+                    "response_format": "text",
+                },
+                timeout=30.0,
+            )
+
+        if response.status_code == 200:
+            transcribed_text = response.text.strip()
+            return TranscriptionResponse(
+                success=True,
+                text=transcribed_text,
+            )
+        else:
+            error_detail = response.text
+            return TranscriptionResponse(
+                success=False,
+                error=f"Transcription failed: {error_detail}",
+            )
+
+    except httpx.TimeoutException:
+        return TranscriptionResponse(
+            success=False,
+            error="Transcription timed out. Please try again.",
+        )
+    except Exception as e:
+        return TranscriptionResponse(
+            success=False,
+            error=f"Error during transcription: {str(e)}",
+        )
