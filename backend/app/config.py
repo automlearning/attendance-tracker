@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     # AI - OpenAI (for Whisper voice transcription)
     OPENAI_API_KEY: str = ""
 
+    # Email - Resend
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "Attendance Tracker <noreply@yourdomain.com>"
+    FRONTEND_URL: str = "http://localhost:5173"  # Used for reset links
+
+    # Password reset
+    RESET_TOKEN_EXPIRE_HOURS: int = 24
+
     # CORS - comma-separated origins string
     CORS_ORIGINS_STR: str = "http://localhost:5173,http://localhost:3000"
 

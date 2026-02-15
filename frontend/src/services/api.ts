@@ -86,6 +86,21 @@ export const authApi = {
     const response = await api.get('/auth/me')
     return response.data
   },
+
+  forgotPassword: async (email: string): Promise<{ message: string }> => {
+    const response = await api.post('/auth/forgot-password', { email })
+    return response.data
+  },
+
+  resetPassword: async (token: string, newPassword: string): Promise<{ message: string }> => {
+    const response = await api.post('/auth/reset-password', { token, new_password: newPassword })
+    return response.data
+  },
+
+  verifyResetToken: async (token: string): Promise<{ valid: boolean }> => {
+    const response = await api.get(`/auth/verify-reset-token?token=${token}`)
+    return response.data
+  },
 }
 
 // Users API

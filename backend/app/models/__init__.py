@@ -4,6 +4,7 @@ from app.models.attendance import AttendanceLog, AttendanceStatus, AttendanceSou
 from app.models.target import Target, PeriodType
 from app.models.subscription import Subscription, SubscriptionTier, SubscriptionStatus
 from app.models.feedback import ChatFeedback, FeedbackRating
+from app.models.password_reset import PasswordResetToken
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "SubscriptionStatus",
     "ChatFeedback",
     "FeedbackRating",
+    "PasswordResetToken",
 ]

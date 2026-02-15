@@ -4,6 +4,8 @@ import { useAuthStore } from '@/store/authStore'
 import { Layout } from '@/components/layout/Layout'
 import { LoginPage } from '@/pages/Login'
 import { RegisterPage } from '@/pages/Register'
+import { ForgotPasswordPage } from '@/pages/ForgotPassword'
+import { ResetPasswordPage } from '@/pages/ResetPassword'
 import { DashboardPage } from '@/pages/Dashboard'
 import { AttendancePage } from '@/pages/Attendance'
 import { TargetsPage } from '@/pages/Targets'
@@ -91,6 +93,22 @@ function App() {
         element={
           <PublicRoute>
             <RegisterPage />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicRoute>
+            <ForgotPasswordPage />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/reset-password"
+        element={
+          <PublicRoute>
+            <ResetPasswordPage />
           </PublicRoute>
         }
       />

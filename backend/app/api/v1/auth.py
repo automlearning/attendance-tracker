@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,9 @@ from app.core.security import (
 )
 from app.models.user import User, UserCreate, UserRead, UserRole
 from app.models.subscription import Subscription, SubscriptionTier
+from app.models.password_reset import PasswordResetToken
+from app.services.email_service import EmailService
+from app.config import settings
 
 router = APIRouter()
 
@@ -36,6 +40,15 @@ class RegisterRequest(BaseModel):
 
 class PasswordChange(BaseModel):
     current_password: str
+    new_password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
     new_password: str
 
 
@@ -153,3 +166,110 @@ async def change_password(
     await db.commit()
 
     return {"message": "Password updated successfully"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Request a password reset email."""
+    # Find user by email
+    result = await db.execute(select(User).where(User.email == request.email))
+    user = result.scalar_one_or_none()
+
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If an account exists with that email, a reset link has been sent."}
+
+    # Invalidate any existing reset tokens for this user
+    existing_tokens = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False
+        )
+    )
+    for token in existing_tokens.scalars().all():
+        token.used = True
+        db.add(token)
+
+    # Create new reset token
+    token = PasswordResetToken(
+        user_id=user.id,
+        token=PasswordResetToken.generate_token(),
+        expires_at=datetime.utcnow() + timedelta(hours=settings.RESET_TOKEN_EXPIRE_HOURS),
+    )
+    db.add(token)
+    await db.commit()
+
+    # Send reset email
+    reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token.token}"
+    email_service = EmailService()
+    await email_service.send_password_reset_email(
+        to_email=user.email,
+        reset_url=reset_url,
+        user_name=user.full_name,
+    )
+
+    return {"message": "If an account exists with that email, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset password using a valid reset token."""
+    # Find the token
+    result = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.token == request.token)
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if not reset_token or not reset_token.is_valid():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    # Get the user
+    result = await db.execute(select(User).where(User.id == reset_token.user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not found",
+        )
+
+    # Update password
+    user.hashed_password = hash_password(request.new_password)
+    db.add(user)
+
+    # Mark token as used
+    reset_token.used = True
+    db.add(reset_token)
+
+    await db.commit()
+
+    return {"message": "Password reset successfully. You can now log in with your new password."}
+
+
+@router.get("/verify-reset-token")
+async def verify_reset_token(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify if a reset token is valid."""
+    result = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.token == token)
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if not reset_token or not reset_token.is_valid():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    return {"valid": True}

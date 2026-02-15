@@ -23,6 +23,7 @@ pydantic-settings>=2.1.0
 email-validator>=2.1.0
 python-dotenv>=1.0.0
 httpx>=0.26.0
+resend>=0.7.0
 
 # Testing
 pytest>=7.4.0
