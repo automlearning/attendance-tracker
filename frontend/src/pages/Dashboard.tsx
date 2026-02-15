@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { attendanceApi, targetsApi, aiApi, holidaysApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,10 @@ import {
   ShieldCheck,
   Calendar,
   MessageCircle,
-  ArrowRight
+  ArrowRight,
+  Mic,
+  MicOff,
+  Loader2
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, parseISO, isAfter, startOfDay } from 'date-fns'
 import {
@@ -177,6 +180,12 @@ export function DashboardPage() {
   const [parsedEntries, setParsedEntries] = useState<ParsedAttendanceEntry[]>([])
   const [nlMessage, setNlMessage] = useState('')
 
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+
   useEffect(() => {
     loadDashboardData()
     loadGreeting()
@@ -305,6 +314,70 @@ export function DashboardPage() {
       await loadDashboardData()
     } catch (error) {
       setNlMessage('Failed to save entries')
+    }
+  }
+
+  // Voice recording handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        stream.getTracks().forEach(track => track.stop())
+        await transcribeAndParse(audioBlob)
+      }
+
+      mediaRecorder.start()
+      setIsRecording(true)
+    } catch (error) {
+      console.error('Error accessing microphone:', error)
+      setNlMessage('Could not access microphone. Please check permissions.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+    }
+  }
+
+  const transcribeAndParse = async (audioBlob: Blob) => {
+    setIsTranscribing(true)
+    setNlMessage('Transcribing...')
+    try {
+      const result = await aiApi.transcribeAudio(audioBlob)
+      if (result.success && result.text) {
+        setNlInput(result.text)
+        setNlMessage('Transcribed! Parsing...')
+        // Auto-parse the transcribed text
+        setNlParsing(true)
+        const parseResult = await aiApi.parseNaturalLanguage(result.text)
+        if (parseResult.success && parseResult.entries.length > 0) {
+          setParsedEntries(parseResult.entries)
+          setNlMessage(parseResult.message || 'Review and confirm entries below')
+        } else {
+          setNlMessage(parseResult.message || 'Could not parse - try typing instead')
+        }
+        setNlParsing(false)
+      } else {
+        setNlMessage(result.error || 'Could not transcribe audio')
+      }
+    } catch (error) {
+      console.error('Error transcribing audio:', error)
+      setNlMessage('Transcription failed - try again')
+    } finally {
+      setIsTranscribing(false)
     }
   }
 
@@ -641,23 +714,50 @@ export function DashboardPage() {
       {/* Natural Language Input */}
       <Card>
         <CardHeader>
-          <CardTitle>Log with AI</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5" />
+            Log with AI
+          </CardTitle>
           <CardDescription>
-            Type naturally, e.g., "I was in office Monday and Tuesday, WFH Wednesday"
+            Type or speak naturally, e.g., "I was in office Monday and Tuesday, WFH Wednesday"
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
+            {/* Voice recording button */}
+            <Button
+              type="button"
+              variant={isRecording ? "destructive" : "outline"}
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={nlParsing || isTranscribing}
+              title={isRecording ? "Stop recording" : "Voice input"}
+            >
+              {isTranscribing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isRecording ? (
+                <MicOff className="h-4 w-4" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+            </Button>
             <Input
-              placeholder="Describe your attendance..."
+              placeholder={isRecording ? "Recording... click mic to stop" : "Describe your attendance..."}
               value={nlInput}
               onChange={(e) => setNlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleNLParse()}
+              disabled={isRecording}
+              className="flex-1"
             />
-            <Button onClick={handleNLParse} disabled={nlParsing || !nlInput.trim()}>
+            <Button onClick={handleNLParse} disabled={nlParsing || !nlInput.trim() || isRecording}>
               <Send className="h-4 w-4" />
             </Button>
           </div>
+          {isRecording && (
+            <p className="text-xs text-red-500 flex items-center gap-1">
+              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+              Recording... Click the microphone button to stop and transcribe
+            </p>
+          )}
 
           {nlMessage && !parsedEntries.length && (
             <p className="text-sm text-muted-foreground">{nlMessage}</p>
