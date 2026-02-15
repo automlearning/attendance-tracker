@@ -28,4 +28,11 @@ class PasswordResetToken(SQLModel, table=True):
 
     def is_valid(self) -> bool:
         """Check if token is still valid."""
-        return not self.used and dt.datetime.utcnow() < self.expires_at
+        if self.used:
+            return False
+        now = dt.datetime.utcnow()
+        # Handle timezone-aware datetimes from PostgreSQL
+        expires = self.expires_at
+        if expires.tzinfo is not None:
+            expires = expires.replace(tzinfo=None)
+        return now < expires
