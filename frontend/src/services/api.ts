@@ -162,6 +162,42 @@ export const attendanceApi = {
   delete: async (id: number): Promise<void> => {
     await api.delete(`/attendance/${id}`)
   },
+
+  getMonthlyHistory: async (months: number = 6): Promise<{
+    month: string
+    month_start: string
+    month_end: string
+    business_days: number
+    work_days: number
+    office_days: number
+    wfh_days: number
+    leave_days: number
+    exempt_days: number
+    office_percentage: number
+    target_percentage: number
+    met_target: boolean
+  }[]> => {
+    const response = await api.get(`/attendance/monthly-history?months=${months}`)
+    return response.data
+  },
+
+  generateTestData: async (months: number = 6, clearExisting: boolean = false): Promise<{
+    success: boolean
+    message: string
+    monthly_stats: {
+      month: string
+      office_days: number
+      wfh_days: number
+      leave_days: number
+      sick_days: number
+      total_days: number
+      office_percentage: number
+      met_target: boolean
+    }[]
+  }> => {
+    const response = await api.post(`/attendance/generate-test-data?months=${months}&clear_existing=${clearExisting}`)
+    return response.data
+  },
 }
 
 // Targets API

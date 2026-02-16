@@ -5,6 +5,7 @@ import { ChatBubble } from '@/components/ChatBubble'
 import {
   LayoutDashboard,
   Calendar,
+  CalendarDays,
   Settings,
   Users,
   LogOut,
@@ -31,6 +32,7 @@ export function Layout({ children }: LayoutProps) {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/attendance', label: 'Attendance', icon: Calendar },
+    { path: '/calendar', label: 'Calendar', icon: CalendarDays },
     { path: '/settings', label: 'Settings', icon: Settings },
   ]
 

@@ -32,6 +32,7 @@ class Suggestion:
 NATURAL_LANGUAGE_PARSE_PROMPT = """You are an attendance parsing assistant. Parse the user's natural language input into structured attendance entries.
 
 Current date: {current_date} ({current_day})
+Current year: {current_year}
 
 User input: "{user_input}"
 
@@ -39,17 +40,32 @@ Rules:
 1. Valid statuses: "in_office", "wfh", "wfh_exempt", "annual_leave", "sick_leave"
 2. Interpret relative dates (yesterday, last Monday, etc.) based on current date
 3. Handle date ranges (Jan 15-17, Monday to Wednesday)
-4. Default to "in_office" if status is ambiguous but location mentioned
-5. Only include workdays (Monday-Friday) unless explicitly stated
+4. Default to "in_office" if status is ambiguous but location/office/work mentioned
+5. Only include workdays (Monday-Friday) unless explicitly stated otherwise
 6. For leave/vacation/holiday/PTO/time off -> use "annual_leave"
 7. For sick/ill/unwell/doctor -> use "sick_leave"
 8. For approved/exempt/discretionary WFH -> use "wfh_exempt"
+
+IMPORTANT - Week calculations:
+- "First week" = days 1-7 of the month
+- "Second week" = days 8-14 of the month
+- "Third week" = days 15-21 of the month
+- "Fourth week" = days 22-28 of the month
+- "Fifth week" or "last days" = days 29-31 (if they exist)
+
+When user says "every Monday in first week of March", find the Monday(s) that fall between March 1-7.
+When user says "Monday, Wednesday, Friday in weeks 1 and 3", find those days in both week ranges.
+
+For month names without a year, use {current_year}. If the month has already passed this year, use the next occurrence.
+
+Example 1: "every Monday in March" -> all Mondays in March {current_year}
+Example 2: "Mon/Wed/Fri in first and third week of March" -> find Mon/Wed/Fri in March 1-7 AND March 15-21
 
 Respond with ONLY a valid JSON array of objects with "date" (YYYY-MM-DD format) and "status" fields.
 If the input is unclear or invalid, respond with an empty array [].
 
 Example response:
-[{{"date": "2026-02-09", "status": "in_office"}}, {{"date": "2026-02-10", "status": "sick_leave"}}]"""
+[{{"date": "2026-03-02", "status": "in_office"}}, {{"date": "2026-03-04", "status": "in_office"}}, {{"date": "2026-03-06", "status": "in_office"}}]"""
 
 
 class AIService:
@@ -75,6 +91,7 @@ class AIService:
             user_input=user_input,
             current_date=current_date.isoformat(),
             current_day=current_date.strftime("%A"),
+            current_year=current_date.year,
         )
 
         try:
@@ -276,23 +293,32 @@ class AIService:
 Current user context:
 - Name: {context.get('user_name', 'User')}
 - Target: {context.get('target_percentage', 50)}% office attendance
-- Current percentage: {context.get('current_percentage', 0)}%
-- Office days this month: {context.get('office_days', 0)}
+- Current percentage: {context.get('current_percentage', 0)}% (based on actual office days so far)
+- Actual office days (already occurred): {context.get('office_days', 0)}
+- Planned office days (future): {context.get('planned_office_days', 0)}
 - WFH days: {context.get('wfh_days', 0)}
 - Leave days: {context.get('leave_days', 0)}
-- Exempt days: {context.get('exempt_days', 0)}
+- WFH Exempt days: {context.get('exempt_days', 0)}
 - Total business days this month: {context.get('business_days', 0)}
+- Work days (business days - leave - exempt): {context.get('work_days', 0)}
 - Remaining business days: {context.get('remaining_days', 0)}
-- Target office days: {context.get('target_office_days', 0)}
-- Days still needed to hit target: {context.get('days_needed', 0)}
+- Target office days needed: {context.get('target_office_days', 0)}
+- Additional office days still needed: {context.get('days_needed', 0)}
+- Projected percentage if plans kept: {context.get('projected_percentage', 0)}%
+
+How the calculation works:
+- Office % = Office Days ÷ Work Days
+- Work Days = Business Days - Leave Days - WFH Exempt Days
+- This means leave and WFH exempt days don't count against you
+- Each month starts fresh at 0%
 
 Guidelines:
 1. Be friendly, supportive, and encouraging
 2. Give specific, actionable advice based on their actual numbers
 3. Keep responses concise (2-4 sentences usually)
 4. If they're on track, celebrate! If behind, be supportive not judgmental
-5. Explain the attendance calculation if asked: Office % = Office Days / Total Business Days
-6. WFH Exempt days reduce the denominator (business days) so they don't count against the target
+5. Consider both actual AND planned office days when giving advice
+6. If they have planned office days, mention them positively
 7. Each month starts fresh - no carryover from previous months
 
 Help the user understand their progress and give practical tips for meeting their target."""
@@ -300,16 +326,24 @@ Help the user understand their progress and give practical tips for meeting thei
         if not self.client:
             # Fallback response without AI
             pct = context.get('current_percentage', 0)
+            projected = context.get('projected_percentage', 0)
             target = context.get('target_percentage', 50)
             needed = context.get('days_needed', 0)
             remaining = context.get('remaining_days', 0)
+            planned = context.get('planned_office_days', 0)
+            office = context.get('office_days', 0)
+            work_days = context.get('work_days', 1)
 
-            if pct >= target:
+            if projected >= target:
+                if planned > 0:
+                    return f"You're doing great! At {pct}% actual with {planned} day(s) planned, you'll reach {projected}% - above your {target}% target!"
                 return f"You're doing great! At {pct}%, you've already hit your {target}% target. Keep it up!"
             elif needed <= remaining:
-                return f"You're at {pct}% and need {needed} more office day(s) to reach {target}%. You have {remaining} business days left - totally achievable!"
+                planned_msg = f" (with {planned} already planned)" if planned > 0 else ""
+                return f"You're at {pct}%{planned_msg} and need {needed} more office day(s) to reach {target}%. You have {remaining} business days left - totally achievable!"
             else:
-                return f"You're at {pct}% with {remaining} days left. Even going to office every remaining day, you'd reach {((context.get('office_days', 0) + remaining) / context.get('business_days', 1) * 100):.1f}%. Focus on maximizing office days and plan better for next month."
+                max_pct = ((office + planned + remaining) / work_days * 100) if work_days > 0 else 0
+                return f"You're at {pct}% with {remaining} days left. Even going to office every remaining day, you'd reach {max_pct:.0f}%. Focus on maximizing office days and plan better for next month."
 
         try:
             response = self.client.messages.create(

@@ -3,7 +3,7 @@ import { useAuthStore } from '@/store/authStore'
 import { aiApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Send, Bot, User, MessageCircle, X, Minimize2, ThumbsUp, ThumbsDown, Mic, MicOff, Loader2 } from 'lucide-react'
+import { Send, Bot, User, MessageCircle, X, Minimize2, ThumbsUp, ThumbsDown, Mic, MicOff, Loader2, MessageSquare } from 'lucide-react'
 
 interface ChatMessage {
   id: number
@@ -11,6 +11,11 @@ interface ChatMessage {
   content: string
   timestamp: Date
   feedback?: 'thumbs_up' | 'thumbs_down' | null
+}
+
+interface PendingFeedback {
+  messageId: number
+  rating: 'thumbs_up' | 'thumbs_down'
 }
 
 export function ChatBubble() {
@@ -32,6 +37,10 @@ export function ChatBubble() {
   const [isTranscribing, setIsTranscribing] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+
+  // Feedback state
+  const [pendingFeedback, setPendingFeedback] = useState<PendingFeedback | null>(null)
+  const [feedbackComment, setFeedbackComment] = useState('')
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -98,12 +107,23 @@ export function ChatBubble() {
     }
   }
 
-  // Handle feedback submission
-  const handleFeedback = async (messageId: number, rating: 'thumbs_up' | 'thumbs_down') => {
+  // Handle feedback - show comment input first
+  const handleFeedbackClick = (messageId: number, rating: 'thumbs_up' | 'thumbs_down') => {
     const message = messages.find(m => m.id === messageId)
     if (!message || message.role !== 'assistant' || message.feedback) return
 
-    const messageIndex = messages.findIndex(m => m.id === messageId)
+    setPendingFeedback({ messageId, rating })
+    setFeedbackComment('')
+  }
+
+  // Submit feedback with optional comment
+  const submitFeedback = async (skipComment: boolean = false) => {
+    if (!pendingFeedback) return
+
+    const message = messages.find(m => m.id === pendingFeedback.messageId)
+    if (!message) return
+
+    const messageIndex = messages.findIndex(m => m.id === pendingFeedback.messageId)
     const userMessage = messageIndex > 0 ? messages[messageIndex - 1] : null
     if (!userMessage || userMessage.role !== 'user') return
 
@@ -111,14 +131,24 @@ export function ChatBubble() {
       await aiApi.submitFeedback({
         user_message: userMessage.content,
         ai_response: message.content,
-        rating
+        rating: pendingFeedback.rating,
+        comment: skipComment ? undefined : feedbackComment.trim() || undefined
       })
       setMessages(prev => prev.map(m =>
-        m.id === messageId ? { ...m, feedback: rating } : m
+        m.id === pendingFeedback.messageId ? { ...m, feedback: pendingFeedback.rating } : m
       ))
     } catch (error) {
       console.error('Error submitting feedback:', error)
+    } finally {
+      setPendingFeedback(null)
+      setFeedbackComment('')
     }
+  }
+
+  // Cancel feedback
+  const cancelFeedback = () => {
+    setPendingFeedback(null)
+    setFeedbackComment('')
   }
 
   // Voice recording handlers
@@ -246,7 +276,7 @@ export function ChatBubble() {
               </div>
               {/* Feedback buttons for assistant messages (not initial greeting) */}
               {message.role === 'assistant' && index > 0 && (
-                <div className="flex items-center gap-1 mt-1">
+                <div className="mt-1">
                   {message.feedback ? (
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       {message.feedback === 'thumbs_up' ? (
@@ -254,24 +284,63 @@ export function ChatBubble() {
                       ) : (
                         <ThumbsDown className="h-3 w-3 text-red-500" />
                       )}
+                      <span>Thanks for feedback!</span>
                     </span>
+                  ) : pendingFeedback?.messageId === message.id ? (
+                    <div className="bg-muted/50 rounded-lg p-2 mt-1 space-y-2">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        {pendingFeedback.rating === 'thumbs_up' ? (
+                          <ThumbsUp className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <ThumbsDown className="h-3 w-3 text-red-500" />
+                        )}
+                        <span>Add a comment (optional)</span>
+                      </div>
+                      <textarea
+                        value={feedbackComment}
+                        onChange={(e) => setFeedbackComment(e.target.value)}
+                        placeholder="What could be better?"
+                        className="w-full text-xs p-2 rounded border bg-background resize-none"
+                        rows={2}
+                      />
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => submitFeedback(false)}
+                          className="text-xs px-2 py-1 bg-primary text-primary-foreground rounded hover:bg-primary/90"
+                        >
+                          Submit
+                        </button>
+                        <button
+                          onClick={() => submitFeedback(true)}
+                          className="text-xs px-2 py-1 bg-secondary rounded hover:bg-secondary/80"
+                        >
+                          Skip
+                        </button>
+                        <button
+                          onClick={cancelFeedback}
+                          className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <>
+                    <div className="flex items-center gap-1">
                       <button
-                        onClick={() => handleFeedback(message.id, 'thumbs_up')}
+                        onClick={() => handleFeedbackClick(message.id, 'thumbs_up')}
                         className="p-1 rounded hover:bg-muted transition-colors"
                         title="Helpful"
                       >
                         <ThumbsUp className="h-3 w-3 text-muted-foreground hover:text-green-500" />
                       </button>
                       <button
-                        onClick={() => handleFeedback(message.id, 'thumbs_down')}
+                        onClick={() => handleFeedbackClick(message.id, 'thumbs_down')}
                         className="p-1 rounded hover:bg-muted transition-colors"
                         title="Not helpful"
                       >
                         <ThumbsDown className="h-3 w-3 text-muted-foreground hover:text-red-500" />
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               )}

@@ -225,10 +225,16 @@ async def get_coaching(
     # Use user's configured target (defaults to 50%)
     target_pct = current_user.target_percentage
     target_office_days = int(work_days * target_pct / 100 + 0.5)  # Round to nearest
-    days_needed = max(0, target_office_days - office_days)
-    days_ahead = office_days - target_office_days
 
-    # Can they still meet target?
+    # Consider both actual AND planned office days
+    total_office_with_planned = office_days + planned_office_days
+    days_needed = max(0, target_office_days - total_office_with_planned)
+    days_ahead = total_office_with_planned - target_office_days
+
+    # Projected percentage if all planned days are completed
+    projected_pct = round(total_office_with_planned / work_days * 100) if work_days > 0 else 0
+
+    # Can they still meet target? (considering planned + remaining days)
     can_meet_target = days_needed <= remaining_business_days
 
     # Determine status and generate coaching
@@ -237,6 +243,7 @@ async def get_coaching(
     stats = {
         "office_days": office_days,
         "planned_office_days": planned_office_days,
+        "total_office_with_planned": total_office_with_planned,
         "wfh_days": wfh_days,
         "leave_days": leave_days,
         "exempt_days": exempt_days,
@@ -244,6 +251,7 @@ async def get_coaching(
         "work_days": work_days,
         "remaining_days": remaining_business_days,
         "current_percentage": current_pct,
+        "projected_percentage": projected_pct,
         "target_percentage": target_pct,
         "target_office_days": target_office_days,
         "days_needed": days_needed,
@@ -264,18 +272,19 @@ async def get_coaching(
             stats=stats,
         )
 
-    if current_pct >= target_pct:
-        # On track or ahead - already at or above target
-        extra_wfh_allowed = office_days - target_office_days
+    if projected_pct >= target_pct:
+        # On track or ahead - will meet target with planned days
+        extra_wfh_allowed = total_office_with_planned - target_office_days
+        planned_msg = f" (+ {planned_office_days} planned)" if planned_office_days > 0 else ""
         return CoachingResponse(
             status="on_track",
-            headline=f"Great job, {first_name}! You've hit your target.",
-            message=f"You're at {current_pct}% office attendance ({office_days} of {work_days} work days). You've already met your {int(target_pct)}% target for this month!",
+            headline=f"Great job, {first_name}! You're on track to hit your target.",
+            message=f"You're at {current_pct}% actual ({office_days} days){planned_msg}. With your planned days, you'll reach {projected_pct}% - exceeding your {int(target_pct)}% target!",
             action_items=[
-                f"Target: {target_office_days} office days | You have: {office_days} office days",
+                f"Target: {target_office_days} office days | You have: {office_days} actual + {planned_office_days} planned",
                 f"You're {abs(days_ahead)} day(s) ahead of your {int(target_pct)}% target",
                 f"You have {remaining_business_days} business days remaining this month",
-                f"You can WFH for the rest of the month and still exceed {int(target_pct)}%" if extra_wfh_allowed > 0 else "Keep it up!",
+                f"You can WFH for the rest of the month and still meet your target" if extra_wfh_allowed > 0 else "Keep it up!",
             ],
             stats=stats,
         )
@@ -283,29 +292,30 @@ async def get_coaching(
     elif can_meet_target:
         # Behind but can catch up
         urgency = "soon" if days_needed > remaining_business_days * 0.7 else "over the coming weeks"
+        planned_msg = f" You have {planned_office_days} more day(s) already planned." if planned_office_days > 0 else ""
         return CoachingResponse(
             status="at_risk",
             headline=f"Heads up, {first_name}! You need more office days.",
-            message=f"You're at {current_pct}% ({office_days} of {work_days} work days). You need {days_needed} more office day(s) to reach {int(target_pct)}%.",
+            message=f"You're at {current_pct}% actual ({office_days} of {work_days} work days).{planned_msg} You need {days_needed} more office day(s) beyond what's planned to reach {int(target_pct)}%.",
             action_items=[
-                f"Target: {target_office_days} office days | You have: {office_days} office days",
+                f"Target: {target_office_days} office days | You have: {office_days} actual + {planned_office_days} planned = {total_office_with_planned}",
                 f"You need {days_needed} more office day(s) to hit {int(target_pct)}%",
                 f"You have {remaining_business_days} work days remaining - enough time!",
-                f"Suggestion: Go to office {urgency}",
+                f"Suggestion: Plan {days_needed} office day(s) {urgency}",
             ],
             stats=stats,
         )
 
     else:
         # Cannot meet target
-        max_possible_pct = (office_days + remaining_business_days) / work_days * 100 if work_days > 0 else 0
+        max_possible_pct = (total_office_with_planned + remaining_business_days) / work_days * 100 if work_days > 0 else 0
         return CoachingResponse(
             status="behind",
-            headline=f"{first_name}, you can't reach {int(target_pct)}% this month.",
-            message=f"You're at {current_pct}% ({office_days} of {work_days} work days). With only {remaining_business_days} days left, the maximum you can reach is {round(max_possible_pct)}%.",
+            headline=f"{first_name}, it's tough to reach {int(target_pct)}% this month.",
+            message=f"You're at {current_pct}% actual ({office_days} days) with {planned_office_days} planned. Even with all {remaining_business_days} remaining days in office, you'd reach {round(max_possible_pct)}%.",
             action_items=[
-                f"Target: {target_office_days} office days | You have: {office_days} office days",
-                f"Even with all remaining days in office, you'll reach {round(max_possible_pct)}%",
+                f"Target: {target_office_days} office days | You have: {office_days} actual + {planned_office_days} planned",
+                f"Maximum possible: {round(max_possible_pct)}% (if you go to office every remaining day)",
                 "Maximize office days this month to get as close as possible",
                 "Plan ahead for next month - each month starts fresh at 0%",
             ],
@@ -379,12 +389,19 @@ async def chat_with_ai(
     current_pct = round(office_days / work_days * 100) if work_days > 0 else 0
     target_pct = current_user.target_percentage
     target_office_days = int(work_days * target_pct / 100 + 0.5)
-    days_needed = max(0, target_office_days - office_days)
+
+    # Days needed should consider PLANNED office days too
+    total_office_with_planned = office_days + planned_office_days
+    days_needed = max(0, target_office_days - total_office_with_planned)
+
+    # Projected percentage if all planned days are completed
+    projected_pct = round(total_office_with_planned / work_days * 100) if work_days > 0 else 0
 
     context = {
         "user_name": current_user.full_name,
         "target_percentage": target_pct,
         "current_percentage": current_pct,
+        "projected_percentage": projected_pct,
         "office_days": office_days,
         "planned_office_days": planned_office_days,
         "wfh_days": wfh_days,

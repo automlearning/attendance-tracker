@@ -11,6 +11,7 @@ import { AttendancePage } from '@/pages/Attendance'
 import { TargetsPage } from '@/pages/Targets'
 import { SettingsPage } from '@/pages/Settings'
 import { AdminPage } from '@/pages/Admin'
+import { MultiCalendarPage } from '@/pages/MultiCalendar'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore()
@@ -127,6 +128,14 @@ function App() {
         element={
           <ProtectedRoute>
             <AttendancePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/calendar"
+        element={
+          <ProtectedRoute>
+            <MultiCalendarPage />
           </ProtectedRoute>
         }
       />

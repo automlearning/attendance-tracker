@@ -36,7 +36,11 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Legend
+  Legend,
+  LineChart,
+  Line,
+  ReferenceLine,
+  ComposedChart
 } from 'recharts'
 
 // Extended summary with forecasting fields
@@ -169,6 +173,14 @@ export function DashboardPage() {
   const [progress, setProgress] = useState<TargetProgress | null>(null)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [greeting, setGreeting] = useState<AIGreeting | null>(null)
+  const [monthlyHistory, setMonthlyHistory] = useState<{
+    month: string
+    office_days: number
+    wfh_days: number
+    leave_days: number
+    office_percentage: number
+    met_target: boolean
+  }[]>([])
   const [coaching, setCoaching] = useState<AICoaching | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [quickLogLoading, setQuickLogLoading] = useState<AttendanceStatus | null>(null)
@@ -190,6 +202,7 @@ export function DashboardPage() {
     loadDashboardData()
     loadGreeting()
     loadCoaching()
+    loadMonthlyHistory()
   }, [user?.target_percentage])
 
   const loadGreeting = async () => {
@@ -207,6 +220,16 @@ export function DashboardPage() {
       setCoaching(coachingData)
     } catch (error) {
       console.error('Failed to load coaching:', error)
+    }
+  }
+
+  const loadMonthlyHistory = async () => {
+    try {
+      const history = await attendanceApi.getMonthlyHistory(6)
+      // Reverse to show oldest first (left to right on chart)
+      setMonthlyHistory(history.reverse())
+    } catch (error) {
+      console.error('Failed to load monthly history:', error)
     }
   }
 
@@ -880,6 +903,86 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Monthly History Chart */}
+      {monthlyHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Monthly Attendance History
+            </CardTitle>
+            <CardDescription>Office attendance percentage over the past 6 months</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={monthlyHistory} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                  <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                  <Tooltip
+                    formatter={(value: number, name: string) => {
+                      if (name === 'office_percentage') return [`${value}%`, 'Office %']
+                      if (name === 'office_days') return [value, 'Office Days']
+                      if (name === 'wfh_days') return [value, 'WFH Days']
+                      if (name === 'leave_days') return [value, 'Leave Days']
+                      return [value, name]
+                    }}
+                  />
+                  <Legend />
+                  <ReferenceLine y={50} stroke="#f59e0b" strokeDasharray="5 5" label={{ value: '50% Target', position: 'right', fill: '#f59e0b', fontSize: 12 }} />
+                  <Bar dataKey="office_days" name="Office Days" fill="#00bfff" stackId="days" />
+                  <Bar dataKey="wfh_days" name="WFH Days" fill="#9ca3af" stackId="days" />
+                  <Bar dataKey="leave_days" name="Leave Days" fill="#f59e0b" stackId="days" />
+                  <Line
+                    type="monotone"
+                    dataKey="office_percentage"
+                    name="Office %"
+                    stroke="#6366f1"
+                    strokeWidth={3}
+                    dot={{ fill: '#6366f1', strokeWidth: 2, r: 5 }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Monthly stats table */}
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2">Month</th>
+                    <th className="text-center py-2 px-2">Office</th>
+                    <th className="text-center py-2 px-2">WFH</th>
+                    <th className="text-center py-2 px-2">Leave</th>
+                    <th className="text-center py-2 px-2">%</th>
+                    <th className="text-center py-2 px-2">Target</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyHistory.map((month, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="py-2 px-2 font-medium">{month.month}</td>
+                      <td className="text-center py-2 px-2 text-cyan-600">{month.office_days}</td>
+                      <td className="text-center py-2 px-2 text-gray-500">{month.wfh_days}</td>
+                      <td className="text-center py-2 px-2 text-amber-600">{month.leave_days}</td>
+                      <td className={`text-center py-2 px-2 font-semibold ${month.office_percentage >= 50 ? 'text-green-600' : 'text-red-600'}`}>
+                        {month.office_percentage}%
+                      </td>
+                      <td className="text-center py-2 px-2">
+                        {month.met_target ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500 inline" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-red-500 inline" />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Forecast Card */}
       <Card className="bg-gradient-to-r from-slate-50 to-slate-100">

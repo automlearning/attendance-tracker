@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
-import { usersApi } from '@/services/api'
+import { usersApi, attendanceApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { User, Shield, Target, CheckCircle2 } from 'lucide-react'
+import { User, Shield, Target, CheckCircle2, FlaskConical, Loader2, Trash2 } from 'lucide-react'
 
 export function SettingsPage() {
   const { user, setUser } = useAuthStore()
@@ -13,6 +13,12 @@ export function SettingsPage() {
   const [email, setEmail] = useState(user?.email || '')
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [testDataResult, setTestDataResult] = useState<{
+    success: boolean
+    message: string
+    monthly_stats: { month: string; office_percentage: number; met_target: boolean }[]
+  } | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -34,6 +40,20 @@ export function SettingsPage() {
       console.error('Failed to save profile:', error)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleGenerateTestData = async (clearExisting: boolean = false) => {
+    setIsGenerating(true)
+    setTestDataResult(null)
+    try {
+      const result = await attendanceApi.generateTestData(6, clearExisting)
+      setTestDataResult(result)
+    } catch (error) {
+      console.error('Failed to generate test data:', error)
+      setTestDataResult({ success: false, message: 'Failed to generate test data', monthly_stats: [] })
+    } finally {
+      setIsGenerating(false)
     }
   }
 
@@ -138,6 +158,71 @@ export function SettingsPage() {
               {user?.is_active ? 'Active' : 'Inactive'}
             </span>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Developer Tools */}
+      <Card className="border-amber-200 bg-amber-50/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FlaskConical className="h-5 w-5 text-amber-600" />
+            Developer Tools
+          </CardTitle>
+          <CardDescription>Generate test data to verify calculations</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Generate 6 months of realistic test attendance data with varying patterns:
+            some months above 50% target, some below. Great for testing the dashboard formulas.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => handleGenerateTestData(false)}
+              disabled={isGenerating}
+              variant="outline"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <FlaskConical className="h-4 w-4 mr-2" />
+                  Add Test Data
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={() => handleGenerateTestData(true)}
+              disabled={isGenerating}
+              variant="destructive"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Clear & Generate Fresh
+            </Button>
+          </div>
+
+          {testDataResult && (
+            <div className={`p-4 rounded-lg ${testDataResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              <p className={`font-medium ${testDataResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                {testDataResult.message}
+              </p>
+              {testDataResult.monthly_stats.length > 0 && (
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {testDataResult.monthly_stats.map((stat, i) => (
+                    <div key={i} className="text-sm p-2 bg-white rounded border">
+                      <span className="font-medium">{stat.month}</span>
+                      <span className={`ml-2 ${stat.met_target ? 'text-green-600' : 'text-red-600'}`}>
+                        {stat.office_percentage}%
+                      </span>
+                      {stat.met_target ? ' ✓' : ' ✗'}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
