@@ -163,21 +163,38 @@ export const attendanceApi = {
     await api.delete(`/attendance/${id}`)
   },
 
-  getMonthlyHistory: async (months: number = 6): Promise<{
-    month: string
-    month_start: string
-    month_end: string
-    business_days: number
-    work_days: number
-    office_days: number
-    wfh_days: number
-    leave_days: number
-    exempt_days: number
-    office_percentage: number
-    target_percentage: number
-    met_target: boolean
-  }[]> => {
-    const response = await api.get(`/attendance/monthly-history?months=${months}`)
+  getMonthlyHistory: async (months?: number): Promise<{
+    financial_year: string
+    fy_start: string
+    months: {
+      month: string
+      month_start: string
+      month_end: string
+      business_days: number
+      work_days: number
+      office_days: number
+      wfh_days: number
+      leave_days: number
+      exempt_days: number
+      office_percentage: number
+      target_percentage: number
+      met_target: boolean
+    }[]
+    ytd_summary: {
+      total_office_days: number
+      total_wfh_days: number
+      total_leave_days: number
+      total_exempt_days: number
+      total_work_days: number
+      ytd_percentage: number
+      avg_monthly_percentage: number
+      target_percentage: number
+      met_target: boolean
+      months_counted: number
+    }
+  }> => {
+    const params = months ? `?months=${months}` : ''
+    const response = await api.get(`/attendance/monthly-history${params}`)
     return response.data
   },
 

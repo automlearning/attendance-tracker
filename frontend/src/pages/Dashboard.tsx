@@ -181,6 +181,19 @@ export function DashboardPage() {
     office_percentage: number
     met_target: boolean
   }[]>([])
+  const [ytdSummary, setYtdSummary] = useState<{
+    total_office_days: number
+    total_wfh_days: number
+    total_leave_days: number
+    total_exempt_days: number
+    total_work_days: number
+    ytd_percentage: number
+    avg_monthly_percentage: number
+    target_percentage: number
+    met_target: boolean
+    months_counted: number
+  } | null>(null)
+  const [financialYear, setFinancialYear] = useState<string>('')
   const [coaching, setCoaching] = useState<AICoaching | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [quickLogLoading, setQuickLogLoading] = useState<AttendanceStatus | null>(null)
@@ -225,9 +238,11 @@ export function DashboardPage() {
 
   const loadMonthlyHistory = async () => {
     try {
-      const history = await attendanceApi.getMonthlyHistory(6)
+      const data = await attendanceApi.getMonthlyHistory()
       // Reverse to show oldest first (left to right on chart)
-      setMonthlyHistory(history.reverse())
+      setMonthlyHistory(data.months.reverse())
+      setYtdSummary(data.ytd_summary)
+      setFinancialYear(data.financial_year)
     } catch (error) {
       console.error('Failed to load monthly history:', error)
     }
@@ -904,15 +919,68 @@ export function DashboardPage() {
         </Card>
       </div>
 
+      {/* YTD Summary Card */}
+      {ytdSummary && (
+        <Card className={`border-2 ${ytdSummary.met_target ? 'border-green-400 bg-gradient-to-r from-green-50 to-emerald-50' : 'border-amber-400 bg-gradient-to-r from-amber-50 to-yellow-50'}`}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              {financialYear} Year-to-Date Summary
+            </CardTitle>
+            <CardDescription>
+              Financial year average across {ytdSummary.months_counted} month{ytdSummary.months_counted !== 1 ? 's' : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="bg-white/60 rounded-lg p-4 text-center">
+                <div className={`text-3xl font-bold ${ytdSummary.ytd_percentage >= 50 ? 'text-green-600' : 'text-amber-600'}`}>
+                  {ytdSummary.ytd_percentage}%
+                </div>
+                <div className="text-sm text-muted-foreground">YTD Office %</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {ytdSummary.total_office_days} office / {ytdSummary.total_work_days} work days
+                </div>
+              </div>
+              <div className="bg-white/60 rounded-lg p-4 text-center">
+                <div className={`text-3xl font-bold ${ytdSummary.avg_monthly_percentage >= 50 ? 'text-green-600' : 'text-amber-600'}`}>
+                  {ytdSummary.avg_monthly_percentage}%
+                </div>
+                <div className="text-sm text-muted-foreground">Avg Monthly %</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Average of {ytdSummary.months_counted} months
+                </div>
+              </div>
+              <div className="bg-white/60 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-cyan-500">{ytdSummary.total_office_days}</div>
+                <div className="text-sm text-muted-foreground">Total Office Days</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {ytdSummary.total_wfh_days} WFH, {ytdSummary.total_leave_days} leave
+                </div>
+              </div>
+              <div className="bg-white/60 rounded-lg p-4 text-center">
+                <div className={`text-3xl font-bold ${ytdSummary.met_target ? 'text-green-600' : 'text-amber-600'}`}>
+                  {ytdSummary.met_target ? 'On Track' : 'Below'}
+                </div>
+                <div className="text-sm text-muted-foreground">Target Status</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Target: {ytdSummary.target_percentage}%
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Monthly History Chart */}
       {monthlyHistory.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5" />
-              Monthly Attendance History
+              {financialYear} Monthly Attendance History
             </CardTitle>
-            <CardDescription>Office attendance percentage over the past 6 months</CardDescription>
+            <CardDescription>Office attendance percentage from financial year start (October)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">

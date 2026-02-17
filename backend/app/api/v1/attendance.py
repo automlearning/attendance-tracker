@@ -21,6 +21,18 @@ from app.models.attendance import (
 router = APIRouter()
 
 
+def get_financial_year_start(reference_date: date) -> date:
+    """Get the start of the financial year (October 1) for a given date.
+
+    Financial year runs October to September.
+    Example: For Feb 2026, FY started Oct 2025. For Nov 2025, FY started Oct 2025.
+    """
+    if reference_date.month >= 10:  # Oct-Dec: FY starts this year
+        return date(reference_date.year, 10, 1)
+    else:  # Jan-Sep: FY started last year
+        return date(reference_date.year - 1, 10, 1)
+
+
 def count_weekdays(start_date: date, end_date: date) -> int:
     """Count weekdays (Mon-Fri) between two dates inclusive."""
     count = 0
@@ -419,16 +431,28 @@ async def get_calendar_view(
 
 @router.get("/monthly-history")
 async def get_monthly_history(
-    months: int = Query(6, ge=1, le=12, description="Number of months to include"),
+    months: int = Query(None, ge=1, le=12, description="Number of months to include (default: from FY start)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get monthly attendance statistics for the past N months."""
+    """Get monthly attendance statistics from financial year start (October).
+
+    Financial year runs October to September.
+    Returns YTD (year-to-date) average across all months.
+    """
     today = date.today()
+    fy_start = get_financial_year_start(today)
+
+    # Calculate months from FY start to now
+    if months is None:
+        # Default: all months from FY start
+        months_from_fy = (today.year - fy_start.year) * 12 + (today.month - fy_start.month) + 1
+        months = min(months_from_fy, 12)
+
     history = []
 
     for i in range(months):
-        # Calculate month start/end
+        # Calculate month start/end (going backwards from current month)
         if i == 0:
             month_start = date(today.year, today.month, 1)
             month_end = today  # Current month ends at today
@@ -473,22 +497,56 @@ async def get_monthly_history(
         # Calculate percentage
         office_percentage = round(office_days / work_days * 100, 1) if work_days > 0 else 0
 
-        history.append({
-            "month": month_start.strftime("%b %Y"),
-            "month_start": month_start.isoformat(),
-            "month_end": month_end.isoformat(),
-            "business_days": business_days,
-            "work_days": work_days,
-            "office_days": office_days,
-            "wfh_days": wfh_days,
-            "leave_days": leave_days,
-            "exempt_days": exempt_days,
-            "office_percentage": office_percentage,
-            "target_percentage": 50.0,
-            "met_target": office_percentage >= 50,
-        })
+        # Only include months from FY start onwards
+        if month_start >= fy_start:
+            history.append({
+                "month": month_start.strftime("%b %Y"),
+                "month_start": month_start.isoformat(),
+                "month_end": month_end.isoformat(),
+                "business_days": business_days,
+                "work_days": work_days,
+                "office_days": office_days,
+                "wfh_days": wfh_days,
+                "leave_days": leave_days,
+                "exempt_days": exempt_days,
+                "office_percentage": office_percentage,
+                "target_percentage": 50.0,
+                "met_target": office_percentage >= 50,
+            })
 
-    return history
+    # Calculate YTD (Year-to-Date) totals and average
+    total_office_days = sum(m["office_days"] for m in history)
+    total_wfh_days = sum(m["wfh_days"] for m in history)
+    total_leave_days = sum(m["leave_days"] for m in history)
+    total_exempt_days = sum(m["exempt_days"] for m in history)
+    total_work_days = sum(m["work_days"] for m in history)
+
+    # YTD percentage = total office days / total work days
+    ytd_percentage = round(total_office_days / total_work_days * 100, 1) if total_work_days > 0 else 0
+
+    # Average monthly percentage
+    avg_percentage = round(sum(m["office_percentage"] for m in history) / len(history), 1) if history else 0
+
+    # Financial year label (e.g., "FY26" for Oct 2025 - Sep 2026)
+    fy_label = f"FY{str(fy_start.year + 1)[2:]}"  # FY26 for year starting Oct 2025
+
+    return {
+        "financial_year": fy_label,
+        "fy_start": fy_start.isoformat(),
+        "months": history,  # Reversed so oldest first for charts
+        "ytd_summary": {
+            "total_office_days": total_office_days,
+            "total_wfh_days": total_wfh_days,
+            "total_leave_days": total_leave_days,
+            "total_exempt_days": total_exempt_days,
+            "total_work_days": total_work_days,
+            "ytd_percentage": ytd_percentage,
+            "avg_monthly_percentage": avg_percentage,
+            "target_percentage": 50.0,
+            "met_target": ytd_percentage >= 50,
+            "months_counted": len(history),
+        }
+    }
 
 
 @router.post("/quick", response_model=AttendanceLogRead)
