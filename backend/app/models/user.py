@@ -29,7 +29,7 @@ class User(UserBase, table=True):
     hashed_password: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    has_seen_intro: bool = Field(default=False)
+    has_seen_intro: Optional[bool] = Field(default=False, nullable=True)
 
     # Relationships
     attendance_logs: List["AttendanceLog"] = Relationship(back_populates="user")
@@ -47,7 +47,7 @@ class UserCreate(SQLModel):
 class UserRead(UserBase):
     id: int
     created_at: datetime
-    has_seen_intro: bool
+    has_seen_intro: Optional[bool] = False
 
 
 class UserUpdate(SQLModel):

@@ -8,7 +8,7 @@ export interface User {
   is_active: boolean
   target_percentage: number
   created_at: string
-  has_seen_intro: boolean
+  has_seen_intro?: boolean
 }
 
 export type AttendanceStatus = 'in_office' | 'wfh' | 'wfh_exempt' | 'annual_leave' | 'sick_leave' | 'public_holiday' | 'planned_office' | 'planned_wfh'
