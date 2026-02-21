@@ -223,126 +223,24 @@ class AIService:
         target_percentage: float,
         db: AsyncSession,
     ) -> dict:
-        """Generate personalized introduction content for first-time users."""
+        """Generate simple welcome content for first-time users. Stats are handled by the chat bubble."""
         first_name = user_name.split()[0] if user_name else "there"
 
-        # Check if user has any attendance logs
-        result = await db.execute(
-            select(AttendanceLog).where(AttendanceLog.user_id == user_id).limit(1)
-        )
-        has_logs = result.scalar_one_or_none() is not None
+        # Simple welcome message - no statistics (chat bubble handles that)
+        welcome_message = f"Welcome to Attendance Tracker, {first_name}! I'm your AI attendance assistant, here to help you track your office attendance and meet your {target_percentage:.0f}% target."
 
-        # Base welcome message
-        welcome_message = f"Welcome to Attendance Tracker, {first_name}! I'm your AI attendance assistant, here to help you track your office attendance and meet your {target_percentage}% target."
+        key_insights = [
+            f"Your target is {target_percentage:.0f}% office attendance",
+            "Office % = Office Days ÷ Work Days (excludes leave and public holidays)",
+            "Use quick-log buttons or natural language to track your attendance",
+            "I'll provide personalized assistance to help you stay on track",
+        ]
 
-        # Generate insights based on whether user has data
-        if not has_logs:
-            # New user - provide onboarding insights
-            key_insights = [
-                f"Your target is {target_percentage}% office attendance",
-                "Office % = Office Days ÷ Work Days (excludes leave and public holidays)",
-                "Use quick-log buttons or natural language to track your attendance",
-                "I'll provide personalized assistance to help you stay on track",
-            ]
-            action_items = [
-                "Start by logging today's attendance",
-                "Check the insights card for personalized information",
-                "Ask me questions anytime - I'm here to help!",
-            ]
-        else:
-            # User has logs - get current stats
-            from datetime import date
-            from calendar import monthrange
-
-            today = date.today()
-            month_start = today.replace(day=1)
-            _, last_day = monthrange(today.year, today.month)
-            month_end = today.replace(day=last_day)
-
-            # Get attendance logs for current month
-            logs_result = await db.execute(
-                select(AttendanceLog).where(
-                    and_(
-                        AttendanceLog.user_id == user_id,
-                        AttendanceLog.date >= month_start,
-                        AttendanceLog.date <= month_end,
-                    )
-                )
-            )
-            logs = logs_result.scalars().all()
-
-            # Calculate stats
-            office_days = sum(1 for log in logs if log.status == AttendanceStatus.IN_OFFICE)
-            wfh_days = sum(1 for log in logs if log.status == AttendanceStatus.WFH)
-            leave_days = sum(1 for log in logs if log.status in [AttendanceStatus.ANNUAL_LEAVE, AttendanceStatus.SICK_LEAVE])
-            exempt_days = sum(1 for log in logs if log.status == AttendanceStatus.WFH_EXEMPT)
-
-            # Count business days
-            business_days = 0
-            current = month_start
-            while current <= today:
-                if current.weekday() < 5:
-                    business_days += 1
-                current += timedelta(days=1)
-
-            work_days = business_days - leave_days - exempt_days
-            current_percentage = (office_days / work_days * 100) if work_days > 0 else 0
-
-            # Calculate days needed
-            target_office_days = int((target_percentage / 100) * work_days)
-            days_needed = max(0, target_office_days - office_days)
-
-            # Use Claude API to generate personalized insights if available
-            if self.client:
-                try:
-                    prompt = f"""Generate a personalized welcome message and insights for a user returning to the attendance tracker.
-
-User Context:
-- Name: {first_name}
-- Target: {target_percentage}%
-- Current percentage: {current_percentage:.1f}%
-- Office days so far: {office_days}
-- Days needed to meet target: {days_needed}
-- Work days this month: {work_days}
-
-Generate:
-1. A warm welcome message (1-2 sentences)
-2. 3-4 key insights as bullet points about their attendance
-3. 2-3 action items they should take
-
-Format as JSON with keys: welcome_message, key_insights (array), action_items (array)"""
-
-                    response = self.client.messages.create(
-                        model=self.model,
-                        max_tokens=512,
-                        messages=[{"role": "user", "content": prompt}],
-                    )
-
-                    import json
-                    result = json.loads(response.content[0].text.strip())
-                    return result
-                except Exception:
-                    pass  # Fall through to fallback
-
-            # Fallback insights
-            if current_percentage >= target_percentage:
-                status = f"You're doing great! At {current_percentage:.1f}%, you're already meeting your {target_percentage}% target"
-            elif days_needed > 0:
-                status = f"You're at {current_percentage:.1f}% with {days_needed} more office day(s) needed to reach {target_percentage}%"
-            else:
-                status = f"You're at {current_percentage:.1f}% office attendance so far"
-
-            key_insights = [
-                status,
-                f"{office_days} office days logged this month",
-                "Use the dashboard to plan ahead and stay on track",
-                "I can answer questions about your progress anytime",
-            ]
-            action_items = [
-                "Check the insights card for detailed information",
-                "Log today's attendance if you haven't already",
-                "Ask me for tips on meeting your target",
-            ]
+        action_items = [
+            "Check the insights card for detailed information",
+            "Log today's attendance if you haven't already",
+            "Ask me for tips on meeting your target",
+        ]
 
         return {
             "greeting": welcome_message,
