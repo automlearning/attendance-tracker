@@ -56,3 +56,16 @@ async def update_profile(
     await db.refresh(current_user)
 
     return current_user
+
+
+@router.put("/profile/intro-seen", response_model=UserRead)
+async def mark_intro_seen(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark that the user has seen the introduction."""
+    current_user.has_seen_intro = True
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user

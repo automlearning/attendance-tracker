@@ -185,9 +185,9 @@ export function ChatPage() {
       <div className="mb-4">
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <Sparkles className="h-8 w-8 text-primary" />
-          AI Coach
+          AI Assistant
         </h1>
-        <p className="text-muted-foreground">Chat with your personal attendance coach</p>
+        <p className="text-muted-foreground">Chat with your personal attendance assistant</p>
       </div>
 
       <Card className="flex-1 flex flex-col overflow-hidden">

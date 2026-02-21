@@ -51,6 +51,12 @@ class GreetingResponse(BaseModel):
     quick_tip: str
 
 
+class IntroResponse(BaseModel):
+    greeting: str
+    insights: List[str]
+    action_items: List[str]
+
+
 class CoachingResponse(BaseModel):
     status: str  # on_track, at_risk, behind, no_data
     headline: str
@@ -81,6 +87,22 @@ async def get_greeting(
         db=db,
     )
     return GreetingResponse(**greeting_data)
+
+
+@router.get("/intro", response_model=IntroResponse)
+async def get_intro(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get personalized introduction content for first-time users."""
+    ai_service = AIService()
+    intro_data = await ai_service.generate_intro_insights(
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        target_percentage=current_user.target_percentage,
+        db=db,
+    )
+    return IntroResponse(**intro_data)
 
 
 @router.post("/parse-natural-language", response_model=NaturalLanguageResponse)

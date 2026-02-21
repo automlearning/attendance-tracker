@@ -119,6 +119,11 @@ export const usersApi = {
     const response = await api.put('/users/profile', { target_percentage: targetPercentage })
     return response.data
   },
+
+  markIntroSeen: async (): Promise<User> => {
+    const response = await api.put('/users/profile/intro-seen')
+    return response.data
+  },
 }
 
 // Attendance API
@@ -296,6 +301,11 @@ export const aiApi = {
     const response = await api.post('/ai/transcribe', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
+    return response.data
+  },
+
+  getIntro: async (): Promise<{ greeting: string; insights: string[]; action_items: string[] }> => {
+    const response = await api.get('/ai/intro')
     return response.data
   },
 }

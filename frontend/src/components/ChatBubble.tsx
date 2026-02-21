@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
-import { aiApi } from '@/services/api'
+import { aiApi, usersApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { IntroDialog } from '@/components/IntroDialog'
 import { Send, Bot, User, MessageCircle, X, Minimize2, ThumbsUp, ThumbsDown, Mic, MicOff, Loader2, MessageSquare } from 'lucide-react'
 
 interface ChatMessage {
@@ -19,7 +20,7 @@ interface PendingFeedback {
 }
 
 export function ChatBubble() {
-  const { user } = useAuthStore()
+  const { user, setUser } = useAuthStore()
   const [isOpen, setIsOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -31,6 +32,16 @@ export function ChatBubble() {
     "Tips?"
   ])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Intro dialog state
+  const [showIntro, setShowIntro] = useState(false)
+  const [introContent, setIntroContent] = useState<{
+    greeting: string
+    insights: string[]
+    action_items: string[]
+  } | null>(null)
+  const [introShownThisSession, setIntroShownThisSession] = useState(false)
+  const [isOnboarding, setIsOnboarding] = useState(false)
 
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false)
@@ -50,18 +61,63 @@ export function ChatBubble() {
     scrollToBottom()
   }, [messages])
 
-  // Add initial greeting when chat opens
+  // Check if user is first-time and show intro
   useEffect(() => {
-    if (isOpen && messages.length === 0) {
+    if (user && user.has_seen_intro === false && !introShownThisSession) {
+      // Fetch intro content
+      aiApi.getIntro().then(content => {
+        setIntroContent(content)
+        setShowIntro(true)
+        setIntroShownThisSession(true)
+      }).catch(error => {
+        console.error('Failed to fetch intro content:', error)
+      })
+    }
+  }, [user, introShownThisSession])
+
+  // Add initial greeting when chat opens (skip if intro was shown or onboarding)
+  useEffect(() => {
+    if (isOpen && messages.length === 0 && !introShownThisSession && !isOnboarding) {
       const firstName = user?.full_name?.split(' ')[0] || 'there'
       setMessages([{
         id: 0,
         role: 'assistant',
-        content: `Hi ${firstName}! I'm your AI coach. Ask me about your attendance progress or tips for meeting your ${user?.target_percentage || 50}% target.`,
+        content: `Hi ${firstName}! I'm your AI assistant. Ask me about your attendance progress or tips for meeting your ${user?.target_percentage || 50}% target.`,
         timestamp: new Date()
       }])
     }
-  }, [isOpen, user, messages.length])
+  }, [isOpen, user, messages.length, introShownThisSession, isOnboarding])
+
+  // Start onboarding flow
+  const startOnboarding = () => {
+    setIsOnboarding(true)
+    setIsOpen(true)
+
+    const firstName = user?.full_name?.split(' ')[0] || 'there'
+
+    // Pre-populate with onboarding messages
+    const onboardingMessages: ChatMessage[] = [
+      {
+        id: Date.now(),
+        role: 'assistant',
+        content: `Great to have you here, ${firstName}! Let me help you get started. 🚀`,
+        timestamp: new Date()
+      },
+      {
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: `First, let's log your attendance for today. You have a few easy options:\n\n📍 Use the quick-log buttons on the dashboard (In Office, WFH, Leave, etc.)\n\n💬 Or just tell me naturally, like "I was in office today" or "I'm working from home"\n\n📅 You can also log past days by saying "I was in office Monday and Tuesday"\n\nWhat's your status for today?`,
+        timestamp: new Date()
+      }
+    ]
+
+    setMessages(onboardingMessages)
+    setSuggestions([
+      "I was in office today",
+      "Working from home today",
+      "I'm on leave today"
+    ])
+  }
 
   const handleSend = async (messageText?: string) => {
     const text = messageText || input.trim()
@@ -92,6 +148,25 @@ export function ChatBubble() {
 
       if (response.suggestions) {
         setSuggestions(response.suggestions.slice(0, 3))
+      }
+
+      // If in onboarding mode and user just logged attendance, provide next steps
+      if (isOnboarding && (text.toLowerCase().includes('office') || text.toLowerCase().includes('wfh') || text.toLowerCase().includes('leave'))) {
+        setTimeout(() => {
+          const followUpMessage: ChatMessage = {
+            id: Date.now() + 2,
+            role: 'assistant',
+            content: `Perfect! 🎉 You've logged your first attendance entry. Here's what you can do next:\n\n📊 Check the dashboard to see your attendance percentage\n📅 Use the calendar to plan future days\n💬 Ask me questions like "How am I doing?" or "What days do I need?"\n\nI'm here whenever you need help tracking your ${user?.target_percentage || 50}% office target!`,
+            timestamp: new Date()
+          }
+          setMessages(prev => [...prev, followUpMessage])
+          setSuggestions([
+            "How am I doing?",
+            "Days needed?",
+            "Show me tips"
+          ])
+          setIsOnboarding(false) // Exit onboarding mode
+        }, 1000)
       }
     } catch (error) {
       console.error('Chat error:', error)
@@ -202,12 +277,29 @@ export function ChatBubble() {
     }
   }
 
+  const handleIntroClose = async () => {
+    try {
+      const updatedUser = await usersApi.markIntroSeen()
+      setUser(updatedUser)
+      setShowIntro(false)
+    } catch (error) {
+      console.error('Failed to mark intro as seen:', error)
+      // Still close the intro even if API call fails
+      setShowIntro(false)
+    }
+  }
+
+  // Render intro dialog if needed
+  if (showIntro && introContent) {
+    return <IntroDialog content={introContent} onClose={handleIntroClose} onStartOnboarding={startOnboarding} />
+  }
+
   if (!isOpen) {
     return (
       <button
         onClick={() => setIsOpen(true)}
         className="fixed bottom-6 right-6 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center z-50"
-        title="Chat with AI Coach"
+        title="Chat with AI Assistant"
       >
         <MessageCircle className="h-6 w-6" />
       </button>
@@ -221,7 +313,7 @@ export function ChatBubble() {
         className="fixed bottom-6 right-6 bg-primary text-primary-foreground rounded-full shadow-lg hover:shadow-xl transition-all flex items-center gap-2 px-4 py-3 z-50"
       >
         <Bot className="h-5 w-5" />
-        <span className="text-sm font-medium">AI Coach</span>
+        <span className="text-sm font-medium">AI Assistant</span>
       </button>
     )
   }
@@ -232,7 +324,7 @@ export function ChatBubble() {
       <div className="flex items-center justify-between px-4 py-3 border-b bg-primary text-primary-foreground rounded-t-lg">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5" />
-          <span className="font-medium">AI Coach</span>
+          <span className="font-medium">AI Assistant</span>
         </div>
         <div className="flex items-center gap-1">
           <button
